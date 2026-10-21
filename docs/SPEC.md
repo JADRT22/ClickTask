@@ -49,6 +49,8 @@ replay an ordered list of points in a loop — from the GUI or from a script.
 | `src/installer.py` | Launcher, menu/desktop entries, icon, systemd update timer, uninstall; all paths under `$HOME`. |
 | `src/updater.py` | GitHub release lookup, tarball download, archive validation, atomic swap of managed folders, dependency refresh. |
 | `src/version.py` | `VERSION` and `REPOSITORY`. |
+| `src/singleinstance.py` | Unix-socket guard; a second launch raises the running window. |
+| `src/doctor.py` | `clicktask doctor` environment/install/timer/cache checks. |
 | `src/main.py` | Route: no arguments → GUI, any argument → CLI. |
 
 **Data flow.** GUI or CLI builds a `ClickPlan` → `ClickPlan.validate()` →
@@ -76,6 +78,7 @@ An unreadable or corrupt config falls back to defaults.
 clicktask click --interval 100ms --count 50 --button left [--double] [--hold MS] [--at X,Y] [--dry-run]
 clicktask seq points.json --interval 100ms --loops 3 [--button left] [--count N] [--dry-run]
 clicktask update [--check] [--force] [--quiet] [--to TAG] [--rollback]
+clicktask doctor
 ```
 
 Exit codes: `0` success, `1` backend unavailable, `2` invalid arguments or plan,
@@ -87,10 +90,10 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 132 tests. The engine, backend,
-config, hotkey, CLI, installer and updater tests need no display, network or
-systemd; the 22 GUI tests use a hidden window and are skipped when `DISPLAY` is
-unset. Nothing moves your pointer:
+`python3 -m unittest discover -s tests -t .` — 145 tests. The engine, backend,
+config, hotkey, CLI, installer, updater, single-instance and doctor tests need no
+display, network or systemd; the 23 GUI tests use a hidden window and are skipped
+when `DISPLAY` is unset. Nothing moves your pointer:
 
 - engine: counts, interval spacing, fixed vs cursor position, sequence order and
   loops, stop mid-run, backend error propagation, plan validation;
@@ -129,3 +132,5 @@ Real input injection is verified manually on an X11 session (see README).
   in `.previous` for `--rollback`.
 - **Startup checks are cached for an hour** so a desktop session that opens the
   app repeatedly stays under GitHub's unauthenticated rate limit.
+- **One GUI per session** — an XDG runtime socket makes the second launch raise
+  the existing window, so a hotkey and pointer are never owned twice.

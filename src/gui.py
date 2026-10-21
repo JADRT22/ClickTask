@@ -21,6 +21,7 @@ import backend
 import config
 import engine
 import hotkey
+import singleinstance
 from version import VERSION
 
 APP_TITLE = "ClickTask"
@@ -61,6 +62,7 @@ class ClickTaskApp:
         self._update_running = False
         self._update_manual = False
         self._update_queue = queue.Queue()
+        self._raise_queue = queue.Queue()
 
         root.title(APP_TITLE)
         root.configure(bg=BG)
@@ -409,6 +411,44 @@ class ClickTaskApp:
     def _toggle_label(self, running):
         key = (self.var_hotkey.get() if hasattr(self, "var_hotkey") else "F6").strip().upper()
         return f"Stop  ({key})" if running else f"Press {key} to click"
+
+    # --- single instance -------------------------------------------------
+
+    def request_focus(self):
+        """Called from the IPC thread: hand the request to the Tk thread."""
+        self._raise_queue.put(True)
+
+    def start_ipc_poll(self):
+        self._schedule("ipc", 200, self._poll_ipc)
+
+    def _poll_ipc(self):
+        raised = False
+        while True:
+            try:
+                self._raise_queue.get_nowait()
+            except queue.Empty:
+                break
+            raised = True
+        if raised:
+            self.focus_window()
+        self._schedule("ipc", 250, self._poll_ipc)
+
+    def focus_window(self):
+        """Bring the existing window forward when a second launch happens."""
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.after(150, self._drop_topmost)
+            self.root.focus_force()
+        except tk.TclError:
+            pass
+
+    def _drop_topmost(self):
+        try:
+            self.root.attributes("-topmost", False)
+        except tk.TclError:
+            pass
 
     # --- animations ---
 
@@ -969,13 +1009,28 @@ class ClickTaskApp:
 
 
 def main(settings=None):
+    instance = singleinstance.SingleInstance()
+    if not instance.acquire():
+        instance.request_raise()
+        print("ClickTask is already running — bringing its window forward.")
+        return 0
     try:
         root = tk.Tk()
     except tk.TclError as exc:
+        instance.release()
         print(f"ClickTask: no usable display ({exc})")
         return 1
-    ClickTaskApp(root, settings)
-    root.mainloop()
+    try:
+        app = ClickTaskApp(root, settings)
+        instance.listen(app.request_focus)
+        app.start_ipc_poll()
+        root.mainloop()
+    finally:
+        instance.release()
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
     return 0
 
 

@@ -2,6 +2,23 @@
 
 All notable changes to **ClickTask** will be documented in this file.
 
+## [v1.1.5] - 2026-10-21
+
+### Added
+- **Single instance:** the GUI binds a Unix socket in
+  `$XDG_RUNTIME_DIR/clicktask`. Launching ClickTask again asks the running
+  window to come forward and exits, so two windows no longer fight over F6 and
+  the pointer. Stale sockets from a crash are detected and replaced.
+- **`clicktask doctor`:** read-only diagnostics for Python, tkinter,
+  python-xlib, the X display, the hotkey and its keycode, install/managed state,
+  launcher/menu/desktop shortcuts, the update timer, the cached release check
+  and the settings path. Exit code 1 when a required check fails; warnings do
+  not fail.
+
+### Fixed
+- The IPC listener compared `raise\n` against a stripped message and ignored
+  every request; caught by the single-instance test.
+
 ## [v1.1.4] - 2026-10-21
 
 ### Fixed

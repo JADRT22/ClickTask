@@ -114,6 +114,16 @@ class CacheTests(unittest.TestCase):
 
 
 class GithubTests(unittest.TestCase):
+    def setUp(self):
+        # Never read or write the user's real update cache from tests.
+        self.tmp = tempfile.mkdtemp()
+        self.environment = patch.dict(
+            os.environ,
+            {"XDG_CACHE_HOME": os.path.join(self.tmp, "cache")},
+        )
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+
     def payload(self, **overrides):
         data = {
             "tag_name": "v1.2.0",

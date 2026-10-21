@@ -90,10 +90,14 @@ this spot at this rate", this is the tool.
 - **Self-update** — installed builds check GitHub on startup and every day, so a
   published release replaces the code by itself; the venv and your settings are
   kept.
+- **One window per session** — launching ClickTask again brings the running
+  window forward instead of starting a second clicker.
+- **`clicktask doctor`** — checks Python, tkinter, python-xlib, the X display,
+  the hotkey/keycode, shortcuts, the update timer and the settings path.
 
 ## Status
 
-This README describes v1.1.4 (`VERSION` in `src/version.py`).
+This README describes v1.1.5 (`VERSION` in `src/version.py`).
 
 | Area | Support level |
 |---|---|
@@ -349,8 +353,10 @@ default), `double`, `hold_ms`.
 | `src/installer.py` | Launcher, menu/desktop entries, icon, systemd timer, uninstall |
 | `src/updater.py` | GitHub release check, tarball download, safe atomic swap |
 | `src/version.py` | `VERSION` (single source of truth) and the repository slug |
+| `src/singleinstance.py` | Unix-socket guard; a second launch raises the running window |
+| `src/doctor.py` | `clicktask doctor` checks (environment, install, timer, cache) |
 | `src/main.py` | Route: no arguments → GUI, any argument → CLI |
-| `tests/` | unittest suite (engine, backend, config, hotkey, CLI, GUI, installer, updater) |
+| `tests/` | unittest suite (engine, backend, config, hotkey, CLI, GUI, installer, updater, instance, doctor) |
 
 ### Tests
 
@@ -359,9 +365,10 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-132 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer and
-updater need no display, network or systemd and never move your pointer; the 22
-GUI tests use a hidden window and skip when `DISPLAY` is unset (CI). The
+145 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer,
+updater, single-instance and doctor need no display, network or systemd and never
+move your pointer; the 23 GUI tests use a hidden window and skip when `DISPLAY`
+is unset (CI). The
 installer/updater tests work inside a temporary `$HOME`. CI runs the suite on
 Python 3.10 and 3.12.
 
@@ -381,6 +388,11 @@ Real input is verified manually — no test injects a click:
 timer run (`clicktask update --check` shows it immediately).
 
 ## Troubleshooting
+
+Run **`clicktask doctor`** first: it prints the Python/tkinter/xlib versions,
+the display and hotkey keycode, whether the install and shortcuts exist, the
+timer state and the last update check, with a non-zero exit code when something
+required is broken.
 
 | Symptom | Cause and fix |
 | --- | --- |

@@ -145,6 +145,8 @@ def build_parser():
         help="install a specific release tag, e.g. v1.1.2",
     )
 
+    subparsers.add_parser("doctor", help="diagnose the environment and installation")
+
     return parser
 
 
@@ -290,6 +292,10 @@ def main(argv=None):
         return EXIT_OK
     if args.command == "update":
         return run_update(args)
+    if args.command == "doctor":
+        import doctor
+
+        return doctor.main([])
     try:
         plan = plan_from_args(args)
     except ValueError as exc:

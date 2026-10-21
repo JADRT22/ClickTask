@@ -192,6 +192,16 @@ class GuiTests(unittest.TestCase):
         previous.stop.assert_not_called()
         self.assertIs(self.app.hotkey_listener, previous)
 
+    def test_ipc_raise_request_focuses_the_window(self):
+        self.app.start_ipc_poll()
+        with patch.object(self.app, "focus_window") as focus:
+            self.app.request_focus()
+            deadline = time.time() + 2
+            while time.time() < deadline and not focus.called:
+                self.root.update()
+                time.sleep(0.02)
+        focus.assert_called_once()
+
     def test_clear_asks_for_confirmation(self):
         self.app.points = [engine.Point(x=1, y=2)]
         self.app._refresh_points()
