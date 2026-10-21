@@ -32,6 +32,7 @@ else lives behind **Settings…**.
 ## Table of contents
 
 - [Why another clicker](#why-another-clicker)
+- [Roadmap](docs/ROADMAP.md)
 - [Features](#features)
 - [Status](#status)
   - [Known limitations](#known-limitations)
@@ -384,6 +385,10 @@ Real input is also verified manually:
 4. Publish a GitHub release whose notes are the new changelog section.
 5. `tools/sign-release.sh vX.Y.Z ~/.config/clicktask/release-key --upload`
    attaches the tarball, `SHA256SUMS` and `SHA256SUMS.sig` to that release.
+   Create the key once with
+   `ssh-keygen -t ed25519 -C clicktask-release -f ~/.config/clicktask/release-key`
+   and copy the `.pub` line into `SIGNER_PUBLIC_KEY` in `src/release_key.py`.
+   Use `-` instead of the key path to publish checksums without a signature.
 6. Nothing else: installed builds pick the release up on startup or on the next
    timer run (`clicktask update --check` shows it immediately).
 
