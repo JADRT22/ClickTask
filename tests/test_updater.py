@@ -329,6 +329,134 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], pip)
 
+    def test_checksum_asset_is_verified_before_swapping(self):
+        import hashlib
+
+        archive = self.tarball("2.0.0")
+        digest = hashlib.sha256(archive).hexdigest()
+        sums = f"{digest}  ClickTask-v2.0.0.tar.gz\n".encode()
+        release = self.release("2.0.0")
+        release["assets"] = [
+            {"name": "ClickTask-v2.0.0.tar.gz", "url": "https://example.invalid/asset.tar.gz"},
+            {"name": "SHA256SUMS", "url": "https://example.invalid/SHA256SUMS"},
+        ]
+
+        def fetch(url, timeout):
+            return sums if url.endswith("SHA256SUMS") else archive
+
+        result = updater.apply_release(release, root=self.prefix, fetch=fetch)
+        self.assertTrue(result["updated"])
+        self.assertEqual(result["to"], "2.0.0")
+
+    def test_checksum_mismatch_keeps_the_old_tree(self):
+        archive = self.tarball("2.0.0")
+        sums = f"{'0' * 64}  ClickTask-v2.0.0.tar.gz\n".encode()
+        release = self.release("2.0.0")
+        release["assets"] = [
+            {"name": "ClickTask-v2.0.0.tar.gz", "url": "https://example.invalid/asset.tar.gz"},
+            {"name": "SHA256SUMS", "url": "https://example.invalid/SHA256SUMS"},
+        ]
+
+        def fetch(url, timeout):
+            return sums if url.endswith("SHA256SUMS") else archive
+
+        with self.assertRaises(updater.UpdateError):
+            updater.apply_release(release, root=self.prefix, fetch=fetch)
+        self.assertIn("old", self.read("src/main.py"))
+        self.assertIn('VERSION = "1.1.0"', self.read("src/version.py"))
+
+    def test_release_without_assets_falls_back_to_the_tarball(self):
+        result = self.apply(self.tarball("2.0.0"))
+        self.assertTrue(result["updated"])
+
+    def _signing_key(self, name="release-key"):
+        import shutil
+        import subprocess
+
+        if not shutil.which("ssh-keygen"):
+            self.skipTest("ssh-keygen is not available")
+        path = os.path.join(self.tmp, name)
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", "clicktask", "-f", path],
+            check=True,
+            capture_output=True,
+        )
+        with open(path + ".pub", "r", encoding="utf-8") as handle:
+            public = " ".join(handle.read().split()[:2])
+        return path, public
+
+    def _signed_release(self, key, version="2.0.0"):
+        import hashlib
+        import subprocess
+
+        archive = self.tarball(version)
+        name = f"ClickTask-v{version}.tar.gz"
+        digest = hashlib.sha256(archive).hexdigest()
+        sums = f"{digest}  {name}\n".encode("utf-8")
+        sums_path = os.path.join(self.tmp, "SHA256SUMS")
+        with open(sums_path, "wb") as handle:
+            handle.write(sums)
+        subprocess.run(
+            ["ssh-keygen", "-Y", "sign", "-f", key, "-n", "clicktask", sums_path],
+            check=True,
+            capture_output=True,
+        )
+        with open(sums_path + ".sig", "rb") as handle:
+            signature = handle.read()
+        release = self.release(version)
+        release["assets"] = [
+            {"name": name, "url": "https://example.invalid/asset.tar.gz"},
+            {"name": "SHA256SUMS", "url": "https://example.invalid/SHA256SUMS"},
+            {"name": "SHA256SUMS.sig", "url": "https://example.invalid/SHA256SUMS.sig"},
+        ]
+
+        def fetch(url, timeout):
+            if url.endswith("SHA256SUMS.sig"):
+                return signature
+            if url.endswith("SHA256SUMS"):
+                return sums
+            return archive
+
+        return release, fetch
+
+    def test_signed_release_with_the_pinned_key_is_installed(self):
+        key, public = self._signing_key()
+        release, fetch = self._signed_release(key)
+        result = updater.apply_release(
+            release, root=self.prefix, fetch=fetch, signer_key=public
+        )
+        self.assertTrue(result["updated"])
+        self.assertIn('VERSION = "2.0.0"', self.read("src/version.py"))
+
+    def test_signature_from_another_key_is_rejected(self):
+        key, _ = self._signing_key()
+        _, other_public = self._signing_key("other-key")
+        release, fetch = self._signed_release(key)
+        with self.assertRaises(updater.UpdateError):
+            updater.apply_release(
+                release, root=self.prefix, fetch=fetch, signer_key=other_public
+            )
+        self.assertIn("old", self.read("src/main.py"))
+
+    def test_unsigned_release_is_rejected_once_a_key_is_pinned(self):
+        archive = self.tarball("2.0.0")
+        release = self.release("2.0.0")
+        release["assets"] = [
+            {"name": "ClickTask-v2.0.0.tar.gz", "url": "https://example.invalid/asset.tar.gz"},
+            {"name": "SHA256SUMS", "url": "https://example.invalid/SHA256SUMS"},
+        ]
+        digest = __import__("hashlib").sha256(archive).hexdigest()
+        sums = f"{digest}  ClickTask-v2.0.0.tar.gz\n".encode("utf-8")
+
+        def fetch(url, timeout):
+            return sums if url.endswith("SHA256SUMS") else archive
+
+        with self.assertRaises(updater.UpdateError):
+            updater.apply_release(
+                release, root=self.prefix, fetch=fetch, signer_key="ssh-ed25519 AAAA"
+            )
+        self.assertIn("old", self.read("src/main.py"))
+
     def test_rollback_restores_the_previous_tree(self):
         self.apply(self.tarball("2.0.0"))
         self.assertTrue(os.path.isdir(os.path.join(self.prefix, updater.PREVIOUS_DIR)))

@@ -11,6 +11,7 @@ License: MIT
 """
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -25,6 +26,7 @@ import urllib.parse
 import urllib.request
 
 import installer
+import release_key
 from version import REPOSITORY, VERSION
 
 API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
@@ -34,6 +36,8 @@ TIMEOUT = 15
 MAX_TARBALL_BYTES = 50 * 1024 * 1024
 CACHE_MAX_AGE = 60 * 60  # one hour: repeated launches do not hit GitHub
 PREVIOUS_DIR = ".previous"
+CHECKSUM_ASSET = "SHA256SUMS"
+SIGNATURE_ASSET = "SHA256SUMS.sig"
 
 # Top-level entries an update may replace. Everything else (`.venv`, marker,
 # lock file) is owned by the local install and is never touched.
@@ -114,6 +118,7 @@ def write_cache(release):
         "tarball_url": release["tarball_url"],
         "html_url": release.get("html_url", ""),
         "notes": release.get("notes", ""),
+        "assets": release.get("assets", []),
         "checked_at": time.time(),
     }
     path = cache_path()
@@ -158,6 +163,11 @@ def _read_release(url, fetch, timeout, label):
     if not isinstance(data, dict) or not data.get("tag_name") or not data.get("tarball_url"):
         raise UpdateError(f"{label} has no tag or tarball")
     tag = str(data["tag_name"])
+    assets = [
+        {"name": str(asset.get("name", "")), "url": asset.get("browser_download_url", "")}
+        for asset in data.get("assets") or []
+        if isinstance(asset, dict) and asset.get("name") and asset.get("browser_download_url")
+    ]
     return {
         "version": tag.lstrip("vV"),
         "tag": tag,
@@ -165,6 +175,7 @@ def _read_release(url, fetch, timeout, label):
         "html_url": data.get("html_url", ""),
         "name": data.get("name") or tag,
         "notes": data.get("body") or "",
+        "assets": assets,
     }
 
 
@@ -239,6 +250,120 @@ def _download(url, destination, fetch=None, timeout=60):
     with open(destination, "wb") as handle:
         handle.write(payload)
     return destination
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _checksum_for(sums_path, filename):
+    """Find `filename` in a sha256sum file (also accepts the `*file` form)."""
+    try:
+        with open(sums_path, "r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError as exc:
+        raise UpdateError(f"cannot read {CHECKSUM_ASSET}: {exc}") from exc
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        digest, name = parts[0].lower(), parts[-1].lstrip("*")
+        if name == filename and len(digest) == 64:
+            return digest
+    return None
+
+
+def _verify_signature(sums_path, signature_path, allowed_signer, workdir):
+    """Check the detached OpenSSH signature over SHA256SUMS.
+
+    The public key is pinned in release_key.py, so a release signed by another
+    key is rejected even when the GitHub account itself was compromised.
+    """
+    if not allowed_signer:
+        raise UpdateError(
+            "release is signed but this build has no pinned signer key "
+            "(src/release_key.py)"
+        )
+    ssh_keygen = shutil.which("ssh-keygen")
+    if not ssh_keygen:
+        raise UpdateError("ssh-keygen is required to verify signed releases")
+    allowed_path = os.path.join(workdir, "allowed_signers")
+    with open(allowed_path, "w", encoding="utf-8") as handle:
+        handle.write(f"{release_key.SIGNER_IDENTITY} {allowed_signer}\n")
+    try:
+        with open(sums_path, "rb") as data:
+            result = subprocess.run(
+                [
+                    ssh_keygen,
+                    "-Y",
+                    "verify",
+                    "-f",
+                    allowed_path,
+                    "-I",
+                    release_key.SIGNER_IDENTITY,
+                    "-n",
+                    release_key.SIGNER_NAMESPACE,
+                    "-s",
+                    signature_path,
+                ],
+                stdin=data,
+                capture_output=True,
+            )
+    except OSError as exc:
+        raise UpdateError(f"cannot run ssh-keygen: {exc}") from exc
+    if result.returncode != 0:
+        raise UpdateError(
+            "release signature does not match the pinned key in src/release_key.py"
+        )
+    return True
+
+
+def _release_archive(release, workdir, fetch=None, signer_key=None):
+    """Download the release archive, checking its signature and SHA256SUMS.
+
+    Releases up to v1.1.5 only have GitHub's generated tarball, so they still
+    work. From v1.2.0 the release publishes SHA256SUMS, so the archive digest is
+    enforced; when the release also carries SHA256SUMS.sig the signature must
+    match the pinned key before anything is extracted. Once a key is pinned,
+    unsigned releases are rejected as well.
+    """
+    if signer_key is None:
+        signer_key = release_key.SIGNER_PUBLIC_KEY
+    destination = os.path.join(workdir, "release.tar.gz")
+    assets = release.get("assets") or []
+    checksum_asset = next((a for a in assets if a.get("name") == CHECKSUM_ASSET), None)
+    signature_asset = next(
+        (a for a in assets if a.get("name") == SIGNATURE_ASSET), None
+    )
+    archive_asset = next(
+        (a for a in assets if a.get("name", "").endswith(".tar.gz")), None
+    )
+    if checksum_asset and archive_asset:
+        sums_path = os.path.join(workdir, CHECKSUM_ASSET)
+        _download(checksum_asset["url"], sums_path, fetch)
+        if signature_asset:
+            signature_path = os.path.join(workdir, SIGNATURE_ASSET)
+            _download(signature_asset["url"], signature_path, fetch)
+            _verify_signature(sums_path, signature_path, signer_key, workdir)
+        elif signer_key:
+            raise UpdateError("release is not signed with the pinned key")
+        expected = _checksum_for(sums_path, archive_asset["name"])
+        if not expected:
+            raise UpdateError(
+                f"{CHECKSUM_ASSET} has no entry for {archive_asset['name']}"
+            )
+        _download(archive_asset["url"], destination, fetch)
+        actual = _sha256(destination)
+        if actual != expected:
+            raise UpdateError(
+                "release archive checksum mismatch (corrupted or tampered download)"
+            )
+        return destination
+    return _download(release["tarball_url"], destination, fetch)
 
 
 def _extract(archive_path, destination):
@@ -371,17 +496,19 @@ def _install_requirements(root, runner=None):
     return True
 
 
-def apply_release(release, root=None, fetch=None, force=False, pip_install=None):
+def apply_release(
+    release, root=None, fetch=None, force=False, pip_install=None, signer_key=None
+):
     """Install `release` over an installed tree. Returns what happened."""
     root = os.path.abspath(root or installed_root())
     if not is_managed(root):
         raise UpdateError(
             f"{root} is not an installed build; run ./tools/install.sh first"
         )
-    return _apply_locked(root, release, fetch, force, pip_install)
+    return _apply_locked(root, release, fetch, force, pip_install, signer_key)
 
 
-def _apply_locked(root, release, fetch, force, pip_install):
+def _apply_locked(root, release, fetch, force, pip_install, signer_key=None):
     with _update_lock(root):
         current = installed_version(root)
         remote = release.get("version") or str(release.get("tag", "")).lstrip("vV")
@@ -391,7 +518,7 @@ def _apply_locked(root, release, fetch, force, pip_install):
         requirements_before = _read_text(os.path.join(root, "requirements.txt"))
         workdir = tempfile.mkdtemp(prefix="clicktask-update-")
         try:
-            archive = _download(release["tarball_url"], os.path.join(workdir, "release.tar.gz"), fetch)
+            archive = _release_archive(release, workdir, fetch, signer_key)
             source = _release_root(_extract(archive, os.path.join(workdir, "tree")))
             new_version = installer.read_version(source)
             if not force and not is_newer(new_version, current):
