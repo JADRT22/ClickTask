@@ -84,7 +84,7 @@ class SequenceFileTests(unittest.TestCase):
         self.assertTrue(points[0].double)
 
     def test_invalid_files(self):
-        for payload in ("{bad", "[]", "{}", [{"y": 1}], [{"x": 1, "y": 2}] * 0):
+        for payload in ("{bad", "[]", "{}", [{"y": 1}], [{"x": -1, "y": 2}], [{"x": 1, "y": -2}]):
             with self.subTest(payload=payload):
                 with self.assertRaises(ValueError):
                     cli.load_points(self.write(payload))

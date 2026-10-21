@@ -70,9 +70,12 @@ def load_points(path):
     for index, item in enumerate(raw_points, 1):
         if not isinstance(item, dict) or "x" not in item or "y" not in item:
             raise ValueError(f"point {index} needs x and y")
+        x, y = int(item["x"]), int(item["y"])
+        if x < 0 or y < 0:
+            raise ValueError(f"point {index}: x and y cannot be negative")
         click = engine.Point(
-            x=int(item["x"]),
-            y=int(item["y"]),
+            x=x,
+            y=y,
             delay_ms=int(item.get("delay_ms", 0)),
             button=item.get("button", ""),
             double=bool(item.get("double", False)),

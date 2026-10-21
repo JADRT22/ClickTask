@@ -9,6 +9,7 @@ Author: JADRT22 (https://github.com/JADRT22)
 License: MIT
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -209,6 +210,80 @@ class GuiTests(unittest.TestCase):
                 time.sleep(0.02)
         focus.assert_called_once()
 
+    def _sequence_file(self, points):
+        path = os.path.join(self.tmp, "sequence.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(points, handle)
+        return path
+
+    def test_move_point_reorders_the_sequence(self):
+        self.app.points = [engine.Point(x=1, y=1), engine.Point(x=2, y=2), engine.Point(x=3, y=3)]
+        self.app._refresh_points()
+        self.app.tree.selection_set(self.app.tree.get_children()[2])
+        self.assertTrue(self.app.move_point(-1))
+        self.assertEqual([point.x for point in self.app.points], [1, 3, 2])
+        self.assertEqual(self.app.tree.index(self.app.tree.selection()[0]), 1)
+        self.assertIn("Moved point 3 to 2", self.app.var_status.get())
+
+    def test_move_point_at_the_edge_is_a_no_op(self):
+        self.app.points = [engine.Point(x=1, y=1)]
+        self.app._refresh_points()
+        self.app.tree.selection_set(self.app.tree.get_children()[0])
+        self.assertFalse(self.app.move_point(-1))
+        self.assertEqual(len(self.app.points), 1)
+
+    def test_duplicate_point_copies_every_field(self):
+        self.app.points = [engine.Point(x=5, y=6, delay_ms=70, button="right", double=True, hold_ms=20)]
+        self.app._refresh_points()
+        self.app.tree.selection_set(self.app.tree.get_children()[0])
+        self.assertTrue(self.app.duplicate_point())
+        self.assertEqual(len(self.app.points), 2)
+        self.assertEqual(
+            (self.app.points[1].x, self.app.points[1].hold_ms, self.app.points[1].button),
+            (5, 20, "right"),
+        )
+        self.assertEqual(self.app.tree.index(self.app.tree.selection()[0]), 1)
+
+    def test_export_points_writes_the_cli_format(self):
+        self.app.points = [
+            engine.Point(x=1, y=2, delay_ms=10, button="right", double=True, hold_ms=5)
+        ]
+        path = os.path.join(self.tmp, "export.json")
+        self.assertTrue(self.app.export_points(path))
+        with open(path, "r", encoding="utf-8") as handle:
+            self.assertEqual(
+                json.load(handle),
+                [{"x": 1, "y": 2, "delay_ms": 10, "button": "right",
+                  "double": True, "hold_ms": 5}],
+            )
+        self.assertIn("Exported 1 points", self.app.var_status.get())
+
+    def test_import_points_replaces_after_confirmation(self):
+        self.app.points = [engine.Point(x=9, y=9)]
+        path = self._sequence_file(
+            [{"x": 3, "y": 4, "delay_ms": 25, "hold_ms": 7},
+             {"x": 5, "y": 6, "button": "right"}]
+        )
+        with patch.object(gui.messagebox, "askyesno", return_value=True):
+            self.assertTrue(self.app.import_points(path))
+        self.assertEqual([(p.x, p.y) for p in self.app.points], [(3, 4), (5, 6)])
+        self.assertEqual(self.app.points[0].hold_ms, 7)
+        self.assertEqual(self.app.points[1].button, "right")
+        self.assertEqual(len(self.app.tree.get_children()), 2)
+
+    def test_import_can_append_instead_of_replacing(self):
+        self.app.points = [engine.Point(x=9, y=9)]
+        path = self._sequence_file([{"x": 1, "y": 1}])
+        self.assertTrue(self.app.import_points(path, replace=False))
+        self.assertEqual([(p.x, p.y) for p in self.app.points], [(9, 9), (1, 1)])
+
+    def test_import_reports_invalid_files(self):
+        path = self._sequence_file([{"x": -1, "y": 2}])
+        with patch.object(gui.messagebox, "showerror") as showerror:
+            self.assertFalse(self.app.import_points(path))
+        showerror.assert_called_once()
+        self.assertEqual(self.app.points, [])
+
     def test_clear_asks_for_confirmation(self):
         self.app.points = [engine.Point(x=1, y=2)]
         self.app._refresh_points()
@@ -276,6 +351,35 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(self.app._update_running)
         self.assertIn("up to date", self.app.var_update.get())
         showinfo.assert_called_once()
+
+    def test_fixed_point_without_hotkey_asks_before_starting(self):
+        self.app.hotkey_listener = None
+        self.app.var_fixed.set(True)
+        self.app.var_x.set("100")
+        self.app.var_y.set("120")
+        self.app.var_unlimited.set(False)
+        self.app.var_count.set("1")
+        with patch.object(gui.messagebox, "askyesno", return_value=False) as ask:
+            self.app.start()
+        ask.assert_called_once()
+        self.assertFalse(self.app.engine.running)
+        self.assertIn("Cancelled", self.app.var_status.get())
+
+    def test_cursor_mode_without_hotkey_starts_without_asking(self):
+        self.app.hotkey_listener = None
+        self.app.var_fixed.set(False)
+        self.app.var_unlimited.set(False)
+        self.app.var_count.set("1")
+        self.app.var_millis.set("5")
+        with patch.object(gui.messagebox, "askyesno") as ask:
+            self.app.start()
+            deadline = time.time() + 5
+            while self.app.engine.running and time.time() < deadline:
+                self.root.update()
+                time.sleep(0.01)
+            self.app.stop()
+        ask.assert_not_called()
+        self.assertEqual(self.app.engine.clicks_done, 1)
 
     def test_run_updates_counter_and_saves_on_close(self):
         self.app.var_unlimited.set(False)

@@ -10,6 +10,7 @@ Author: JADRT22 (https://github.com/JADRT22)
 License: MIT
 """
 
+import json
 import os
 import queue
 import threading
@@ -308,6 +309,12 @@ class ClickTaskApp:
             column.pack(side="left", padx=(0, 10))
             ttk.Spinbox(column, from_=0, to=limit, width=5, textvariable=var).pack(side="left")
             ttk.Label(column, text=label).pack(side="left", padx=(2, 0))
+        ttk.Label(
+            interval,
+            text="Below ~5 ms the X server and the target app bound the real rate.",
+            style="Status.TLabel",
+            wraplength=380,
+        ).pack(anchor="w", pady=(6, 0))
 
         click = ttk.LabelFrame(tab, text="Click", padding=8)
         click.pack(fill="x", pady=(8, 0))
@@ -390,6 +397,19 @@ class ClickTaskApp:
                    style="Ghost.TButton").pack(side="left", padx=6)
         ttk.Button(controls, text="Clear", command=self.clear_points,
                    style="Ghost.TButton").pack(side="left")
+
+        manage = ttk.Frame(tab, style="Card.TFrame")
+        manage.pack(fill="x", pady=(6, 0))
+        ttk.Button(manage, text="↑ Up", command=lambda: self.move_point(-1),
+                   style="Ghost.TButton").pack(side="left")
+        ttk.Button(manage, text="↓ Down", command=lambda: self.move_point(1),
+                   style="Ghost.TButton").pack(side="left", padx=6)
+        ttk.Button(manage, text="Duplicate", command=self.duplicate_point,
+                   style="Ghost.TButton").pack(side="left")
+        ttk.Button(manage, text="Import…", command=self.import_points,
+                   style="Ghost.TButton").pack(side="right")
+        ttk.Button(manage, text="Export…", command=self.export_points,
+                   style="Ghost.TButton").pack(side="right", padx=6)
 
         loops = ttk.Frame(tab, style="Card.TFrame")
         loops.pack(fill="x", pady=(8, 0))
@@ -634,6 +654,124 @@ class ClickTaskApp:
             self.points.pop(index)
             self._refresh_points()
 
+    def _selected_index(self):
+        selection = self.tree.selection()
+        if not selection:
+            return None
+        index = self.tree.index(selection[0])
+        return index if 0 <= index < len(self.points) else None
+
+    def move_point(self, offset):
+        """Move the selected point up (-1) or down (+1)."""
+        index = self._selected_index()
+        if index is None:
+            self.var_status.set("Select a point first")
+            return False
+        target = index + offset
+        if not 0 <= target < len(self.points):
+            return False
+        self.points[index], self.points[target] = self.points[target], self.points[index]
+        self._refresh_points()
+        children = self.tree.get_children()
+        self.tree.selection_set(children[target])
+        self.tree.see(children[target])
+        self.var_status.set(f"Moved point {index + 1} to {target + 1}")
+        return True
+
+    def duplicate_point(self):
+        index = self._selected_index()
+        if index is None:
+            self.var_status.set("Select a point to duplicate")
+            return False
+        original = self.points[index]
+        clone = engine.Point(
+            x=original.x,
+            y=original.y,
+            delay_ms=original.delay_ms,
+            button=original.button,
+            double=original.double,
+            hold_ms=original.hold_ms,
+        )
+        self.points.insert(index + 1, clone)
+        self._refresh_points()
+        children = self.tree.get_children()
+        self.tree.selection_set(children[index + 1])
+        self.tree.see(children[index + 1])
+        self.var_status.set(f"Duplicated point {index + 1}")
+        return True
+
+    def _points_payload(self):
+        return [
+            {
+                "x": point.x,
+                "y": point.y,
+                "delay_ms": point.delay_ms,
+                "button": point.button,
+                "double": point.double,
+                "hold_ms": point.hold_ms,
+            }
+            for point in self.points
+        ]
+
+    def export_points(self, path=None):
+        """Save the sequence as the same JSON format the CLI reads."""
+        if not self.points:
+            self.var_status.set("Nothing to export")
+            return False
+        if path is None:
+            from tkinter import filedialog
+
+            path = filedialog.asksaveasfilename(
+                parent=self.settings_window or self.root,
+                title="Export sequence",
+                defaultextension=".json",
+                filetypes=[("JSON sequence", "*.json"), ("All files", "*")],
+            )
+            if not path:
+                return False
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(self._points_payload(), handle, indent=2)
+                handle.write("\n")
+        except OSError as exc:
+            messagebox.showerror(APP_TITLE, f"Could not export: {exc}")
+            return False
+        self.var_status.set(f"Exported {len(self.points)} points to {os.path.basename(path)}")
+        return True
+
+    def import_points(self, path=None, replace=True):
+        """Load a sequence file (the CLI format) into the list."""
+        if path is None:
+            from tkinter import filedialog
+
+            path = filedialog.askopenfilename(
+                parent=self.settings_window or self.root,
+                title="Import sequence",
+                filetypes=[("JSON sequence", "*.json"), ("All files", "*")],
+            )
+            if not path:
+                return False
+        try:
+            import cli
+
+            points = cli.load_points(path)
+        except ValueError as exc:
+            messagebox.showerror(APP_TITLE, str(exc))
+            return False
+        if replace and self.points and not messagebox.askyesno(
+            APP_TITLE,
+            f"Replace the {len(self.points)} current points with "
+            f"the {len(points)} from this file?",
+        ):
+            return False
+        if replace:
+            self.points = list(points)
+        else:
+            self.points.extend(points)
+        self._refresh_points()
+        self.var_status.set(f"Imported {len(points)} points")
+        return True
+
     def clear_points(self):
         if not self.points:
             return
@@ -818,6 +956,18 @@ class ClickTaskApp:
             messagebox.showerror(APP_TITLE, str(exc))
             self.open_settings()
             return
+        if self.hotkey_listener is None and (
+            plan.position is not None or plan.mode == engine.SEQUENCE_MODE
+        ):
+            # Fixed-point clicking moves the pointer away from the Stop button;
+            # without a hotkey there may be no way back.
+            if not messagebox.askyesno(
+                APP_TITLE,
+                "The toggle hotkey is unavailable and this plan clicks at a fixed "
+                "point.\nStarting now can make the run hard to stop.\n\nStart anyway?",
+            ):
+                self.var_status.set("Cancelled — no hotkey to stop the run")
+                return
         if self.engine is None:
             self.engine = engine.ClickEngine(backend.make_backend())
         try:

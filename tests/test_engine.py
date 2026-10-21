@@ -196,6 +196,10 @@ class PlanValidationTests(unittest.TestCase):
                 mode=engine.SEQUENCE_MODE,
                 points=[engine.Point(x=1, y=1, button="thumb")],
             ),
+            engine.ClickPlan(
+                mode=engine.SEQUENCE_MODE,
+                points=[engine.Point(x=-1, y=1)],
+            ),
         ]
         for plan in cases:
             with self.subTest(plan=plan):

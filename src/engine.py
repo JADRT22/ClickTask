@@ -83,6 +83,8 @@ class ClickPlan:
                     errors.append(f"point {index}: invalid button")
                 if point.delay_ms < 0:
                     errors.append(f"point {index}: delay cannot be negative")
+                if point.x < 0 or point.y < 0:
+                    errors.append(f"point {index}: position cannot be negative")
         return errors
 
 
