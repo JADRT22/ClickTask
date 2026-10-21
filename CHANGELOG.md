@@ -2,6 +2,30 @@
 
 All notable changes to **ClickTask** will be documented in this file.
 
+## [v1.2.0] - 2026-10-21
+
+### Added
+- **Update verification:** when a release publishes `SHA256SUMS`, the archive
+  digest is checked before anything is extracted; a mismatch aborts the update
+  and the old tree stays in place. Releases may also publish
+  `SHA256SUMS.sig` (OpenSSH signature), which is verified against the key pinned
+  in `src/release_key.py`, so a compromised GitHub account alone cannot push
+  code. `tools/sign-release.sh` builds and uploads the archive, sums and
+  signature.
+- **Sequence management:** **↑ Up** / **↓ Down** reorder the selected point,
+  **Duplicate** copies it below, and **Import…** / **Export…** read and write
+  the same JSON the CLI uses.
+- **Failsafe prompt:** starting a fixed-point or sequence run without a working
+  hotkey now asks first, since the pointer leaves the Stop button.
+- **Rate hint:** the interval panel explains that below ~5 ms the X server and
+  the target app bound the real click rate.
+
+### Changed
+- CI matrix now covers Python **3.13** and **3.14** alongside 3.10 and 3.12.
+- The TinyTask/GS comparison moved to `docs/COMPARISON.md`, keeping the README
+  focused on install and usage.
+- The suite is now 163 tests (160 headless, 3 gated input tests).
+
 ## [v1.1.5] - 2026-10-21
 
 ### Added

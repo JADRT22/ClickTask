@@ -47,7 +47,8 @@ replay an ordered list of points in a loop — from the GUI or from a script.
 | `src/cli.py` | Argument parsing, interval/point/sequence-file parsing, plan building, exit codes. |
 | `src/gui.py` | tkinter minimal window (big toggle button, counter, fade-in/pulse/pop animations) plus a Settings dialog holding the Clicker/Sequence tabs, hotkey field, click-to-pick flow, update toggle, plan building and config save on close. |
 | `src/installer.py` | Launcher, menu/desktop entries, icon, systemd update timer, uninstall; all paths under `$HOME`. |
-| `src/updater.py` | GitHub release lookup, tarball download, archive validation, atomic swap of managed folders, dependency refresh. |
+| `src/updater.py` | GitHub release lookup, tarball download, `SHA256SUMS`/signature verification, archive validation, atomic swap of managed folders, dependency refresh. |
+| `src/release_key.py` | Public key that pins the signing key for releases; empty means unsigned releases are accepted with a checksum only. |
 | `src/version.py` | `VERSION` and `REPOSITORY`. |
 | `src/singleinstance.py` | Unix-socket guard; a second launch raises the running window. |
 | `src/doctor.py` | `clicktask doctor` environment/install/timer/cache checks. |
@@ -90,10 +91,10 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 148 tests. The engine, backend,
+`python3 -m unittest discover -s tests -t .` — 163 tests. The engine, backend,
 config, hotkey, CLI, installer, updater, single-instance, doctor and XTEST
 integration tests add 3 gated cases (display guard + real move/click) that only
-run with `CLICKTASK_REQUIRE_DISPLAY=1` / `CLICKTASK_X11_TEST=1`; the 23 GUI tests
+run with `CLICKTASK_REQUIRE_DISPLAY=1` / `CLICKTASK_X11_TEST=1`; the 33 GUI tests
 use a hidden window and are skipped when `DISPLAY` is unset. A CI job runs the
 whole suite under Xvfb, so the GUI tests and a real XTEST click are exercised
 there. In the normal suite nothing moves your pointer:
@@ -111,7 +112,8 @@ there. In the normal suite nothing moves your pointer:
   uninstall and purge, all inside a temporary `$HOME`;
 - updater: version comparison, GitHub payload validation, unsafe archive
   rejection, full apply from a fake tarball, dependency refresh, uninstall of
-  removed modules, and the managed-install guard.
+  removed modules, the managed-install guard, `SHA256SUMS` mismatch, and
+  signed-release acceptance/rejection with a temporary `ssh-keygen` key.
 
 Real input injection is verified manually on an X11 session and automatically
 by the env-gated XTEST test inside Xvfb (see README).
@@ -130,7 +132,14 @@ by the env-gated XTEST test inside Xvfb (see README).
   startup and daily; `--no-autoupdate`, the Settings toggle and
   `CLICKTASK_NO_UPDATE=1` can disable them. Tarballs are validated (layout,
   no links, no path escapes) before `os.replace` swaps the tree; failures roll
-  back to the previous files.
+  back to the previous files, and `SHA256SUMS` mismatch aborts before extraction.
+- **Updates are authenticated, not just encrypted in transit** — releases may
+  ship `SHA256SUMS.sig` (OpenSSH detached signature over the sums file). The
+  updater verifies it against `src/release_key.py` and refuses signed releases
+  with an unknown key. While that file is empty, only the checksum applies, so
+  the checksum catches corruption but not a rewritten release.
+- **Fixed-point runs warn without a hotkey** — the pointer moves away from the
+  Stop button, so the GUI asks before starting when the grab is unavailable.
 - **Auto-update only for installed trees** — a marker file identifies installs,
   so a git checkout is never overwritten by mistake; the replaced tree is kept
   in `.previous` for `--rollback`.

@@ -8,5 +8,5 @@ Author: JADRT22 (https://github.com/JADRT22)
 License: MIT
 """
 
-VERSION = "1.1.5"
+VERSION = "1.2.0"
 REPOSITORY = "JADRT22/ClickTask"

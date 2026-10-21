@@ -52,21 +52,13 @@ else lives behind **Settings…**.
 
 ## Why another clicker
 
-TinyTask and GS Auto Clicker solve different problems, and Linux already has a
-good answer for the first one:
+TinyTask records and replays a whole session, keyboard included; GS Auto
+Clicker keeps clicking a spot at a set rhythm. ClickTask follows the second
+model, with a CLI, point sequences and a signature-verified self-update, on
+Linux/X11. If you want "replay what I did", use
+[LinuxTask](https://github.com/JADRT22/LinuxTask).
 
-| | TinyTask | GS Auto Clicker | **ClickTask** |
-| :--- | :--- | :--- | :--- |
-| Model | Record & replay mouse **and keyboard** | Timer-driven clicks | Timer-driven clicks |
-| How you use it | Record once, replay the event stream | Configure interval/button, hit the hotkey | Same as GS, plus a CLI |
-| Timing | Comes from the recording (speed, loop) | Fixed interval (h/m/s/**ms**) | Fixed interval, down to 1 ms |
-| Keyboard | Records and replays it | Never touches it | Never touches it |
-| Targeting | Wherever you clicked while recording | Cursor or pinned point, plus click sequences | Cursor, pinned point, or point sequence |
-| Options | rec/play/speed/loop | Button, single/double, N clicks, hotkey | Button, single/double, hold, N clicks, hotkey |
-
-If you want "replay what I did", use
-[LinuxTask](https://github.com/JADRT22/LinuxTask). If you want "keep clicking
-this spot at this rate", this is the tool.
+Full comparison: [docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Features
 
@@ -97,7 +89,7 @@ this spot at this rate", this is the tool.
 
 ## Status
 
-This README describes v1.1.5 (`VERSION` in `src/version.py`).
+This README describes v1.2.0 (`VERSION` in `src/version.py`).
 
 | Area | Support level |
 |---|---|
@@ -234,9 +226,12 @@ release, `clicktask update --to vX.Y.Z` installs a specific one and
 `clicktask update --rollback` restores the tree replaced by the last update (no
 network needed).
 
-The update downloads the release tarball to a temporary directory, checks that
-it contains `src/main.py` and that no entry escapes the folder, and only then
-swaps `src/`, `tools/`, `docs/` and `assets/` in place. Your `.venv`, settings and
+The update downloads the release tarball to a temporary directory and checks
+the published `SHA256SUMS` before anything is unpacked; when the release also
+carries `SHA256SUMS.sig`, that signature must match the key pinned in
+`src/release_key.py`, so a compromised GitHub account alone cannot push code.
+It then checks that the archive contains `src/main.py` and that no entry escapes
+the folder, and only then swaps `src/`, `tools/`, `docs/` and `assets/` in place. Your `.venv`, settings and
 shortcuts are preserved; if `requirements.txt` changed, the dependencies are
 reinstalled inside the venv. Old modules the release removed disappear with the
 swap. The replaced tree is kept in `.previous` until the next update, which is
@@ -260,7 +255,9 @@ it. **Settings…** holds everything else:
   mode, and the target (cursor or fixed point).
 - **Sequence tab** — the ordered point list, its loop count, an optional click
   cap, and the picker. Select a row and press **Edit…** (or double-click it) to
-  change its X/Y, delay, button, double-click and per-point hold.
+  change its X/Y, delay, button, double-click and per-point hold; **↑ Up** and
+  **↓ Down** reorder, **Duplicate** copies the row below it, and **Import…** /
+  **Export…** read and write the same JSON format as the CLI.
 - **Toggle hotkey** — any X11 key name (`F6`, `F8`, `space`); press **Apply**.
 
 The active tab decides what Start runs: with **Sequence** selected, the list
@@ -328,9 +325,10 @@ default), `double`, `hold_ms`.
   own user; there is no `uinput`, no `evdev` and no privileged helper.
 - **One outbound request, only for updates.** Clicking never opens a socket.
   Installed builds read the latest release from `api.github.com` on startup and
-  once a day, then download the release tarball from GitHub; the archive layout
-  is verified before any file is replaced and symlinks are rejected. Turn it off
-  in Settings or at install time. Locally, the only files written are
+  once a day, then download the release tarball and its `SHA256SUMS` from
+  GitHub; a signed release is verified against the pinned public key, the
+  archive layout is verified before any file is replaced and symlinks are
+  rejected. Turn it off in Settings or at install time. Locally, the only files written are
   `$XDG_CONFIG_HOME/clicktask/config.json` and the install folder.
 - **Grabs are short and visible.** The hotkey grabs one key on the root
   window; the picker grabs the pointer only while a pick is open (Esc cancels,
@@ -365,12 +363,12 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-148 tests: 145 run headless and never move the pointer, plus 3 gated ones (a
-display guard and two real XTEST checks). The 23 GUI tests use a hidden window
+163 tests: 160 run headless and never move the pointer, plus 3 gated ones (a
+display guard and two real XTEST checks). The 33 GUI tests use a hidden window
 and skip when `DISPLAY` is unset; the installer/updater tests work inside a
-temporary `$HOME`. CI runs the headless suite on Python 3.10 and 3.12, and a
-separate job under **Xvfb** where the GUI tests and the XTEST click actually run
-(`CLICKTASK_REQUIRE_DISPLAY=1`, `CLICKTASK_X11_TEST=1`).
+temporary `$HOME`. CI runs the headless suite on Python 3.10, 3.12, 3.13 and
+3.14, and a separate job under **Xvfb** where the GUI tests and the XTEST click
+actually run (`CLICKTASK_REQUIRE_DISPLAY=1`, `CLICKTASK_X11_TEST=1`).
 
 Real input is also verified manually:
 
@@ -384,8 +382,15 @@ Real input is also verified manually:
 2. Run the suite (and a manual click test on X11).
 3. `git tag vX.Y.Z && git push origin main --tags`.
 4. Publish a GitHub release whose notes are the new changelog section.
-5. Nothing else: installed builds pick the release up on startup or on the next
-timer run (`clicktask update --check` shows it immediately).
+5. `tools/sign-release.sh vX.Y.Z ~/.config/clicktask/release-key --upload`
+   attaches the tarball, `SHA256SUMS` and `SHA256SUMS.sig` to that release.
+6. Nothing else: installed builds pick the release up on startup or on the next
+   timer run (`clicktask update --check` shows it immediately).
+
+The signing key is yours and never goes in the repo; only its `.pub` half lives
+in `src/release_key.py`. A release without a signature still installs while
+that field is empty, but adding the key turns unsigned updates into errors —
+which is the point.
 
 ## Troubleshooting
 
