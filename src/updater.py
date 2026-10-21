@@ -19,16 +19,21 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import installer
 from version import REPOSITORY, VERSION
 
 API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
+API_TAG_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/tags/"
 USER_AGENT = f"ClickTask/{VERSION} (+https://github.com/{REPOSITORY})"
 TIMEOUT = 15
 MAX_TARBALL_BYTES = 50 * 1024 * 1024
+CACHE_MAX_AGE = 60 * 60  # one hour: repeated launches do not hit GitHub
+PREVIOUS_DIR = ".previous"
 
 # Top-level entries an update may replace. Everything else (`.venv`, marker,
 # lock file) is owned by the local install and is never touched.
@@ -76,6 +81,53 @@ def is_managed(root=None):
     return installer.is_managed(root or installed_root())
 
 
+def cache_path():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache"
+    )
+    return os.path.join(base, "clicktask", "update.json")
+
+
+def read_cache(max_age=CACHE_MAX_AGE):
+    """Return a release checked less than `max_age` seconds ago, or None."""
+    try:
+        with open(cache_path(), "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not data.get("version") or not data.get("tarball_url"):
+        return None
+    try:
+        age = time.time() - float(data.get("checked_at", 0))
+    except (TypeError, ValueError):
+        return None
+    if max_age is not None and age > max_age:
+        return None
+    return data
+
+
+def write_cache(release):
+    """Remember a release check so the next launch can skip the network."""
+    payload = {
+        "version": release["version"],
+        "tag": release.get("tag", f"v{release['version']}"),
+        "tarball_url": release["tarball_url"],
+        "html_url": release.get("html_url", ""),
+        "notes": release.get("notes", ""),
+        "checked_at": time.time(),
+    }
+    path = cache_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        os.replace(tmp, path)
+        return path
+    except OSError:
+        return None
+
+
 # --- GitHub --------------------------------------------------------------
 
 
@@ -91,13 +143,12 @@ def _http_get(url, timeout=TIMEOUT):
         return response.read()
 
 
-def fetch_latest_release(fetch=None, timeout=TIMEOUT):
-    """Return {version, tag, tarball_url, html_url, notes} for the latest release."""
+def _read_release(url, fetch, timeout, label):
     fetch = fetch or _http_get
     try:
-        payload = fetch(API_URL, timeout)
+        payload = fetch(url, timeout)
     except urllib.error.HTTPError as exc:
-        raise UpdateError(f"GitHub returned HTTP {exc.code} for the latest release") from exc
+        raise UpdateError(f"GitHub returned HTTP {exc.code} for {label}") from exc
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise UpdateError(f"could not reach GitHub: {exc}") from exc
     try:
@@ -105,7 +156,7 @@ def fetch_latest_release(fetch=None, timeout=TIMEOUT):
     except (UnicodeDecodeError, ValueError) as exc:
         raise UpdateError(f"GitHub sent an unexpected response: {exc}") from exc
     if not isinstance(data, dict) or not data.get("tag_name") or not data.get("tarball_url"):
-        raise UpdateError("the latest release has no tag or tarball")
+        raise UpdateError(f"{label} has no tag or tarball")
     tag = str(data["tag_name"])
     return {
         "version": tag.lstrip("vV"),
@@ -117,10 +168,35 @@ def fetch_latest_release(fetch=None, timeout=TIMEOUT):
     }
 
 
-def check_for_update(current=None, fetch=None):
+def fetch_latest_release(fetch=None, timeout=TIMEOUT, use_cache=True, max_age=CACHE_MAX_AGE):
+    """Return {version, tag, tarball_url, html_url, notes} for the latest release.
+
+    A check younger than `max_age` is served from the cache, so reopening the
+    app does not spend GitHub's unauthenticated rate limit. Pass
+    `use_cache=False` for an explicit "check now".
+    """
+    if use_cache:
+        cached = read_cache(max_age)
+        if cached is not None:
+            return dict(cached, cached=True)
+    release = _read_release(API_URL, fetch, timeout, "the latest release")
+    write_cache(release)
+    return release
+
+
+def fetch_release(tag, fetch=None, timeout=TIMEOUT):
+    """Fetch one specific release by tag (used by `update --to`)."""
+    tag = str(tag or "").strip()
+    if not tag:
+        raise UpdateError("a tag is required")
+    url = API_TAG_URL + urllib.parse.quote(tag, safe="/")
+    return _read_release(url, fetch, timeout, f"release {tag}")
+
+
+def check_for_update(current=None, fetch=None, use_cache=True):
     """Return the release dict when it is newer than `current`, else None."""
     current = current or installed_version()
-    release = fetch_latest_release(fetch=fetch)
+    release = fetch_latest_release(fetch=fetch, use_cache=use_cache)
     return release if is_newer(release["version"], current) else None
 
 
@@ -201,8 +277,12 @@ def _release_root(directory):
     raise UpdateError("release archive does not contain src/main.py")
 
 
-def _replace_tree(source, root):
-    """Copy the managed items into a staging dir, then swap them in."""
+def _replace_tree(source, root, keep_previous=True):
+    """Copy the managed items into a staging dir, then swap them in.
+
+    With `keep_previous` the replaced files are kept in `root/.previous` so a
+    bad release can be rolled back without a download.
+    """
     items = [name for name in MANAGED_ITEMS if os.path.exists(os.path.join(source, name))]
     if "src" not in items:
         raise UpdateError("release archive is missing the src folder")
@@ -247,6 +327,13 @@ def _replace_tree(source, root):
         shutil.rmtree(stage, ignore_errors=True)
         raise UpdateError(f"could not replace the installed files: {exc}") from exc
 
+    if keep_previous:
+        try:
+            previous = os.path.join(root, PREVIOUS_DIR)
+            shutil.rmtree(previous, ignore_errors=True)
+            os.replace(backup_dir, previous)
+        except OSError:
+            pass  # a missing backup must not turn a good update into a failure
     shutil.rmtree(stage, ignore_errors=True)
     return items
 
@@ -321,6 +408,13 @@ def _apply_locked(root, release, fetch, force, pip_install):
                 autoupdate=bool(marker.get("autoupdate", True)),
             )
             installer.refresh(root, new_version)
+            previous = os.path.join(root, PREVIOUS_DIR)
+            if os.path.isdir(previous):
+                _write_json(
+                    os.path.join(previous, "manifest.json"),
+                    {"version": current, "created_at": time.time()},
+                )
+            _remove(cache_path())
             requirements_after = _read_text(os.path.join(root, "requirements.txt"))
             if requirements_before != requirements_after:
                 _install_requirements(root, pip_install)
@@ -336,6 +430,53 @@ def _read_text(path):
             return handle.read()
     except OSError:
         return ""
+
+
+def _write_json(path, payload):
+    try:
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def rollback(root=None):
+    """Restore the tree that the last update replaced. No network needed."""
+    root = os.path.abspath(root or installed_root())
+    if not is_managed(root):
+        raise UpdateError(f"{root} is not an installed build; run ./tools/install.sh first")
+    previous = os.path.join(root, PREVIOUS_DIR)
+    if not os.path.isfile(os.path.join(previous, "src", "version.py")):
+        raise UpdateError("there is no previous version to roll back to")
+
+    with _update_lock(root):
+        current = installed_version(root)
+        manifest = _read_json(os.path.join(previous, "manifest.json"))
+        target = manifest.get("version") or installer.read_version(previous)
+        _replace_tree(previous, root, keep_previous=False)
+        marker = installer.read_marker(root)
+        installer.write_marker(
+            root,
+            target,
+            desktop=bool(marker.get("desktop", True)),
+            autoupdate=bool(marker.get("autoupdate", True)),
+        )
+        installer.refresh(root, target)
+        shutil.rmtree(previous, ignore_errors=True)
+        _remove(cache_path())
+
+    return {"updated": True, "from": current, "to": target, "rollback": True}
+
+
+def _read_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 if __name__ == "__main__":

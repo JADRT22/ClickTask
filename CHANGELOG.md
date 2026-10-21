@@ -2,6 +2,24 @@
 
 All notable changes to **ClickTask** will be documented in this file.
 
+## [v1.1.3] - 2026-10-21
+
+### Added
+- **Update check cache:** the startup check reuses a result younger than one
+  hour (`$XDG_CACHE_HOME/clicktask/update.json`), so reopening the app does not
+  spend GitHub's unauthenticated rate limit. *Check now* and `clicktask update`
+  always hit the network.
+- **Rollback:** every update keeps the replaced tree in `.previous`;
+  `clicktask update --rollback` restores it without downloading anything.
+- **`clicktask update --to TAG`** installs a specific release, including an
+  older one.
+
+### Fixed
+- **Failed hotkey rebind killed the old hotkey:** the listener was stopped
+  before the new grab was attempted. The old key now stays active and the field
+  reverts to it when the new name or grab fails.
+- **Clear erased the sequence without asking:** the button now confirms first.
+
 ## [v1.1.2] - 2026-10-21
 
 ### Added

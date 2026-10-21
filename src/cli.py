@@ -133,6 +133,17 @@ def build_parser():
     update.add_argument(
         "--quiet", action="store_true", help="only print changes and errors"
     )
+    update.add_argument(
+        "--rollback",
+        action="store_true",
+        help="restore the version replaced by the last update (no network)",
+    )
+    update.add_argument(
+        "--to",
+        metavar="TAG",
+        default=None,
+        help="install a specific release tag, e.g. v1.1.2",
+    )
 
     return parser
 
@@ -141,8 +152,22 @@ def run_update(args):
     """`clicktask update`: compare with the latest GitHub release and apply it."""
     import updater
 
+    if args.rollback:
+        try:
+            result = updater.rollback()
+        except updater.UpdateError as exc:
+            print(f"clicktask: rollback failed: {exc}", file=sys.stderr)
+            return EXIT_BACKEND
+        print(f"rolled back {result['from']} → {result['to']} ({updater.installed_root()})")
+        print("restart ClickTask to use the restored version")
+        return EXIT_OK
+
     try:
-        release = updater.fetch_latest_release()
+        release = (
+            updater.fetch_release(args.to)
+            if args.to
+            else updater.fetch_latest_release(use_cache=False)
+        )
     except updater.UpdateError as exc:
         print(f"clicktask: update check failed: {exc}", file=sys.stderr)
         return EXIT_BACKEND
@@ -159,13 +184,13 @@ def run_update(args):
             print("up to date")
         return EXIT_OK
 
-    if not newer and not args.force:
+    if not newer and not args.force and not args.to:
         if not args.quiet:
             print("up to date")
         return EXIT_OK
 
     try:
-        result = updater.apply_release(release, force=args.force)
+        result = updater.apply_release(release, force=bool(args.to) or args.force)
     except updater.UpdateError as exc:
         print(f"clicktask: update failed: {exc}", file=sys.stderr)
         return EXIT_BACKEND
@@ -174,6 +199,7 @@ def run_update(args):
         f"updated {result['from']} → {result['to']} "
         f"({updater.installed_root()})"
     )
+    print("previous version kept: `clicktask update --rollback` undoes it")
     print("restart ClickTask to use the new version")
     return EXIT_OK
 

@@ -213,6 +213,25 @@ class UpdateCliTests(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_OK)
         self.assertIn("updated 1.0.0 → 9.9.9", out)
 
+    def test_rollback_runs_without_network(self):
+        rolled = {"updated": True, "from": "1.1.2", "to": "1.1.1"}
+        with patch("updater.rollback", return_value=rolled), \
+                patch("updater.fetch_latest_release") as fetch:
+            code, out, _err = self.capture(["update", "--rollback"])
+        self.assertEqual(code, cli.EXIT_OK)
+        fetch.assert_not_called()
+        self.assertIn("rolled back 1.1.2 → 1.1.1", out)
+
+    def test_specific_tag_is_installed(self):
+        applied = {"updated": True, "from": "1.1.2", "to": "9.9.9"}
+        with patch("updater.fetch_release", return_value=self.release), \
+                patch("updater.installed_version", return_value="1.1.2"), \
+                patch("updater.apply_release", return_value=applied) as apply:
+            code, out, _err = self.capture(["update", "--to", "v9.9.9"])
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertTrue(apply.call_args.kwargs["force"])
+        self.assertIn("updated 1.1.2 → 9.9.9", out)
+
     def test_network_failure_is_a_backend_error(self):
         with patch(
             "updater.fetch_latest_release", side_effect=updater.UpdateError("offline")

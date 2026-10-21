@@ -595,8 +595,15 @@ class ClickTaskApp:
             self._refresh_points()
 
     def clear_points(self):
+        if not self.points:
+            return
+        if not messagebox.askyesno(
+            APP_TITLE, f"Remove all {len(self.points)} points from the sequence?"
+        ):
+            return
         self.points.clear()
         self._refresh_points()
+        self.var_status.set("Sequence cleared")
 
     @staticmethod
     def _raw(value):
@@ -809,17 +816,36 @@ class ClickTaskApp:
     # --- hotkey ---
 
     def _start_hotkey(self):
-        name = self.var_hotkey.get().strip() or "F6"
-        if self.hotkey_listener is not None:
-            self.hotkey_listener.stop()
-            self.hotkey_listener = None
-        listener = hotkey.HotkeyListener(name, callback=self._hotkey_pressed)
+        """Register the hotkey, keeping the previous one if the new one fails."""
+        requested = self.var_hotkey.get().strip() or "F6"
+        previous = self.hotkey_listener
+        try:
+            listener = hotkey.HotkeyListener(requested, callback=self._hotkey_pressed)
+        except hotkey.HotkeyError as exc:
+            self._hotkey_failed(exc, previous)
+            return
+        if previous is not None and previous.hotkey == listener.hotkey:
+            self._hotkey_ready(listener.hotkey)
+            return
         try:
             listener.start()
         except hotkey.HotkeyError as exc:
-            self.var_status.set(f"Hotkey unavailable: {exc}")
+            self._hotkey_failed(exc, previous)
             return
+        if previous is not None:
+            previous.stop()
         self.hotkey_listener = listener
+        self._hotkey_ready(listener.hotkey)
+
+    def _hotkey_failed(self, exc, previous):
+        if previous is not None:
+            self.var_hotkey.set(previous.hotkey)
+            self.var_status.set(f"Hotkey unavailable: {exc} (kept {previous.hotkey})")
+        else:
+            self.var_status.set(f"Hotkey unavailable: {exc}")
+
+    def _hotkey_ready(self, name):
+        self.var_hotkey.set(name)
         running = self.engine is not None and self.engine.running
         self.var_toggle.set(self._toggle_label(running))
         if not running:
@@ -868,7 +894,7 @@ class ClickTaskApp:
         try:
             import updater
 
-            release = updater.fetch_latest_release()
+            release = updater.fetch_latest_release(use_cache=not manual)
             current = updater.installed_version()
             if not updater.is_newer(release["version"], current):
                 result, error = {"updated": False, "version": current}, None

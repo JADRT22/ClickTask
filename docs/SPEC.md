@@ -75,7 +75,7 @@ An unreadable or corrupt config falls back to defaults.
 ```
 clicktask click --interval 100ms --count 50 --button left [--double] [--hold MS] [--at X,Y] [--dry-run]
 clicktask seq points.json --interval 100ms --loops 3 [--button left] [--count N] [--dry-run]
-clicktask update [--check] [--force] [--quiet]
+clicktask update [--check] [--force] [--quiet] [--to TAG] [--rollback]
 ```
 
 Exit codes: `0` success, `1` backend unavailable, `2` invalid arguments or plan,
@@ -87,9 +87,9 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 118 tests. The engine, backend,
+`python3 -m unittest discover -s tests -t .` — 132 tests. The engine, backend,
 config, hotkey, CLI, installer and updater tests need no display, network or
-systemd; the 17 GUI tests use a hidden window and are skipped when `DISPLAY` is
+systemd; the 22 GUI tests use a hidden window and are skipped when `DISPLAY` is
 unset. Nothing moves your pointer:
 
 - engine: counts, interval spacing, fixed vs cursor position, sequence order and
@@ -125,4 +125,7 @@ Real input injection is verified manually on an X11 session (see README).
   no links, no path escapes) before `os.replace` swaps the tree; failures roll
   back to the previous files.
 - **Auto-update only for installed trees** — a marker file identifies installs,
-  so a git checkout is never overwritten by mistake.
+  so a git checkout is never overwritten by mistake; the replaced tree is kept
+  in `.previous` for `--rollback`.
+- **Startup checks are cached for an hour** so a desktop session that opens the
+  app repeatedly stays under GitHub's unauthenticated rate limit.

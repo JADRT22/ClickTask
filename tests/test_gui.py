@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
@@ -150,6 +150,64 @@ class GuiTests(unittest.TestCase):
             time.sleep(0.02)
         self.root.update()
         self.assertFalse(self.app._pick_active, "pick flow did not finish")
+
+    def test_failed_hotkey_rebind_keeps_the_previous_key(self):
+        previous = Mock()
+        previous.hotkey = "F6"
+        self.app.hotkey_listener = previous
+        self.app.var_hotkey.set("F8")
+        with patch.object(gui.hotkey, "HotkeyListener") as listener_class:
+            listener_class.return_value.hotkey = "F8"
+            listener_class.return_value.start.side_effect = gui.hotkey.HotkeyError("key taken")
+            self.app._start_hotkey()
+        previous.stop.assert_not_called()
+        self.assertIs(self.app.hotkey_listener, previous)
+        self.assertEqual(self.app.var_hotkey.get(), "F6")
+        self.assertIn("kept F6", self.app.var_status.get())
+
+    def test_successful_hotkey_rebind_replaces_the_listener(self):
+        previous = Mock()
+        previous.hotkey = "F6"
+        self.app.hotkey_listener = previous
+        self.app.var_hotkey.set("F8")
+        new = Mock()
+        new.hotkey = "F8"
+        with patch.object(gui.hotkey, "HotkeyListener", return_value=new):
+            self.app._start_hotkey()
+        new.start.assert_called_once()
+        previous.stop.assert_called_once()
+        self.assertIs(self.app.hotkey_listener, new)
+        self.assertEqual(self.app.var_hotkey.get(), "F8")
+        self.assertIn("F8", self.app.var_status.get())
+
+    def test_reapplying_the_same_hotkey_does_not_regrab(self):
+        previous = Mock()
+        previous.hotkey = "F6"
+        self.app.hotkey_listener = previous
+        same = Mock()
+        same.hotkey = "F6"
+        with patch.object(gui.hotkey, "HotkeyListener", return_value=same):
+            self.app._start_hotkey()
+        same.start.assert_not_called()
+        previous.stop.assert_not_called()
+        self.assertIs(self.app.hotkey_listener, previous)
+
+    def test_clear_asks_for_confirmation(self):
+        self.app.points = [engine.Point(x=1, y=2)]
+        self.app._refresh_points()
+        with patch.object(gui.messagebox, "askyesno", return_value=False) as ask:
+            self.app.clear_points()
+        ask.assert_called_once()
+        self.assertEqual(len(self.app.points), 1)
+
+    def test_clear_removes_points_when_confirmed(self):
+        self.app.points = [engine.Point(x=1, y=2), engine.Point(x=3, y=4)]
+        self.app._refresh_points()
+        with patch.object(gui.messagebox, "askyesno", return_value=True):
+            self.app.clear_points()
+        self.assertEqual(self.app.points, [])
+        self.assertEqual(self.app.tree.get_children(), ())
+        self.assertEqual(self.app.var_status.get(), "Sequence cleared")
 
     def test_pick_position_stores_the_clicked_point(self):
         with patch.object(gui.backend, "capture_click", return_value=(321, 654)):

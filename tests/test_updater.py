@@ -44,6 +44,75 @@ class VersionTests(unittest.TestCase):
         self.assertFalse(updater.is_newer("1.0.9", "1.1.0"))
 
 
+class CacheTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.environment = patch.dict(
+            os.environ, {"HOME": self.tmp, "XDG_CACHE_HOME": os.path.join(self.tmp, "cache")}
+        )
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+
+    def payload(self, version="1.2.0"):
+        return json.dumps(
+            {
+                "tag_name": f"v{version}",
+                "tarball_url": "https://example.invalid/release.tar.gz",
+                "html_url": "https://example.invalid/release",
+                "body": "notes",
+            }
+        ).encode()
+
+    def test_fetch_writes_the_cache(self):
+        release = updater.fetch_latest_release(fetch=lambda url, timeout: self.payload())
+        self.assertEqual(release["version"], "1.2.0")
+        cached = updater.read_cache()
+        self.assertEqual(cached["version"], "1.2.0")
+        self.assertTrue(os.path.isfile(updater.cache_path()))
+
+    def test_fresh_cache_skips_the_network(self):
+        updater.write_cache(
+            {"version": "1.2.0", "tag": "v1.2.0", "tarball_url": "https://x/tar.gz"}
+        )
+        calls = []
+
+        def fetch(url, timeout):
+            calls.append(url)
+            return self.payload("9.9.9")
+
+        release = updater.fetch_latest_release(fetch=fetch)
+        self.assertEqual(release["version"], "1.2.0")
+        self.assertTrue(release.get("cached"))
+        self.assertEqual(calls, [])
+
+    def test_expired_cache_hits_the_network(self):
+        updater.write_cache(
+            {"version": "1.2.0", "tag": "v1.2.0", "tarball_url": "https://x/tar.gz"}
+        )
+        release = updater.fetch_latest_release(
+            fetch=lambda url, timeout: self.payload("1.3.0"), max_age=-1
+        )
+        self.assertEqual(release["version"], "1.3.0")
+        self.assertEqual(updater.read_cache()["version"], "1.3.0")
+
+    def test_manual_check_bypasses_the_cache(self):
+        updater.write_cache(
+            {"version": "1.2.0", "tag": "v1.2.0", "tarball_url": "https://x/tar.gz"}
+        )
+        release = updater.fetch_latest_release(
+            fetch=lambda url, timeout: self.payload("1.3.0"), use_cache=False
+        )
+        self.assertEqual(release["version"], "1.3.0")
+
+    def test_corrupt_cache_is_ignored(self):
+        os.makedirs(os.path.dirname(updater.cache_path()), exist_ok=True)
+        with open(updater.cache_path(), "w", encoding="utf-8") as handle:
+            handle.write("{bad")
+        self.assertIsNone(updater.read_cache())
+        release = updater.fetch_latest_release(fetch=lambda url, timeout: self.payload())
+        self.assertEqual(release["version"], "1.2.0")
+
+
 class GithubTests(unittest.TestCase):
     def payload(self, **overrides):
         data = {
@@ -57,24 +126,34 @@ class GithubTests(unittest.TestCase):
         return json.dumps(data).encode()
 
     def test_fetch_latest_release(self):
-        release = updater.fetch_latest_release(fetch=lambda url, timeout: self.payload())
+        release = updater.fetch_latest_release(
+            fetch=lambda url, timeout: self.payload(), use_cache=False
+        )
         self.assertEqual(release["version"], "1.2.0")
         self.assertEqual(release["tag"], "v1.2.0")
         self.assertEqual(release["tarball_url"], "https://example.invalid/release.tar.gz")
 
     def test_fetch_rejects_missing_fields(self):
         with self.assertRaises(updater.UpdateError):
-            updater.fetch_latest_release(fetch=lambda url, timeout: self.payload(tag_name=""))
+            updater.fetch_latest_release(
+                fetch=lambda url, timeout: self.payload(tag_name=""), use_cache=False
+            )
 
     def test_fetch_rejects_bad_json(self):
         with self.assertRaises(updater.UpdateError):
-            updater.fetch_latest_release(fetch=lambda url, timeout: b"not json")
+            updater.fetch_latest_release(
+                fetch=lambda url, timeout: b"not json", use_cache=False
+            )
 
     def test_check_for_update(self):
         with patch.object(updater, "installed_version", return_value="1.1.0"):
-            newer = updater.check_for_update(fetch=lambda url, timeout: self.payload())
+            newer = updater.check_for_update(
+                fetch=lambda url, timeout: self.payload(), use_cache=False
+            )
             same = updater.check_for_update(
-                current="1.2.0", fetch=lambda url, timeout: self.payload()
+                current="1.2.0",
+                fetch=lambda url, timeout: self.payload(),
+                use_cache=False,
             )
         self.assertEqual(newer["version"], "1.2.0")
         self.assertIsNone(same)
@@ -239,6 +318,23 @@ class ApplyTests(unittest.TestCase):
         self.assertTrue(result["updated"])
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], pip)
+
+    def test_rollback_restores_the_previous_tree(self):
+        self.apply(self.tarball("2.0.0"))
+        self.assertTrue(os.path.isdir(os.path.join(self.prefix, updater.PREVIOUS_DIR)))
+
+        result = updater.rollback(self.prefix)
+
+        self.assertEqual((result["from"], result["to"]), ("2.0.0", "1.1.0"))
+        self.assertIn('VERSION = "1.1.0"', self.read("src/version.py"))
+        self.assertIn("old", self.read("src/main.py"))
+        self.assertTrue(os.path.exists(os.path.join(self.prefix, "src", "legacy.py")))
+        self.assertEqual(installer.read_marker(self.prefix)["version"], "1.1.0")
+        self.assertFalse(os.path.exists(os.path.join(self.prefix, updater.PREVIOUS_DIR)))
+
+    def test_rollback_without_a_backup_is_reported(self):
+        with self.assertRaises(updater.UpdateError):
+            updater.rollback(self.prefix)
 
     def test_pip_failure_is_reported(self):
         pip = os.path.join(self.prefix, ".venv", "bin", "pip")

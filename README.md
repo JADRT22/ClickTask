@@ -216,22 +216,27 @@ same installed copy.
 Installed builds update themselves from
 [GitHub releases](https://github.com/JADRT22/ClickTask/releases):
 
-- **On startup** — the GUI checks once in the background and, when a newer tag
-exists, downloads and installs it. The window then says *Updated to vX.Y.Z —
-restart ClickTask*.
+- **On startup** — the GUI checks in the background and, when a newer tag
+exists, downloads and installs it. The result is cached for an hour
+(`$XDG_CACHE_HOME/clicktask/update.json`), so relaunching does not burn GitHub's
+unauthenticated rate limit; *Check now* always queries the network. The window
+then says *Updated to vX.Y.Z — restart ClickTask*.
 - **Every day** — the systemd user timer `clicktask-update.timer` runs
 `clicktask update --quiet`, so the files are current even if you never open the
 app.
 - **On demand** — `clicktask update --check` reports the versions,
 `clicktask update` installs, `clicktask update --force` reinstalls the latest
-release.
+release, `clicktask update --to vX.Y.Z` installs a specific one and
+`clicktask update --rollback` restores the tree replaced by the last update (no
+network needed).
 
 The update downloads the release tarball to a temporary directory, checks that
 it contains `src/main.py` and that no entry escapes the folder, and only then
 swaps `src/`, `tools/`, `docs/` and `assets/` in place. Your `.venv`, settings and
 shortcuts are preserved; if `requirements.txt` changed, the dependencies are
 reinstalled inside the venv. Old modules the release removed disappear with the
-swap.
+swap. The replaced tree is kept in `.previous` until the next update, which is
+what `--rollback` restores.
 
 Turn it off in **Settings… → Auto-update on new releases** (startup check) or
 skip the timer with `./install.sh --no-autoupdate`. `CLICKTASK_NO_UPDATE=1`
@@ -354,8 +359,8 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-118 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer and
-updater need no display, network or systemd and never move your pointer; the 17
+132 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer and
+updater need no display, network or systemd and never move your pointer; the 22
 GUI tests use a hidden window and skip when `DISPLAY` is unset (CI). The
 installer/updater tests work inside a temporary `$HOME`. CI runs the suite on
 Python 3.10 and 3.12.
