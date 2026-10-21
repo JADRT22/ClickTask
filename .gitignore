@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Test / build artifacts
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+
+# Local user data
+config.json
+*.log
+*.tmp

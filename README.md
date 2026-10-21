@@ -1,0 +1,361 @@
+# 🖱️ ClickTask — Interval Auto Clicker for X11
+
+> 👤 More projects: [@JADRT22](https://github.com/JADRT22) — LinuxTask • Hyprland automation • Roblox on Linux • MCP/agents
+
+**An interval auto clicker for X11, modelled on GS Auto Clicker: set a rhythm, press F6, and it clicks — at the cursor or at a pinned point.**
+
+[![Release](https://img.shields.io/github/v/release/JADRT22/ClickTask?style=flat-square)](https://github.com/JADRT22/ClickTask/releases)
+[![tests](https://img.shields.io/github/actions/workflow/status/JADRT22/ClickTask/python-app.yml?style=flat-square&label=tests)](https://github.com/JADRT22/ClickTask/actions/workflows/python-app.yml)
+[![License](https://img.shields.io/github/license/JADRT22/ClickTask?style=flat-square)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/JADRT22/ClickTask?style=flat-square)](https://github.com/JADRT22/ClickTask/stargazers)
+
+ClickTask clicks for you at a fixed interval, at the cursor or at a point you
+pick with the mouse, and can replay an ordered list of points in a loop. It
+never records your keyboard — that is
+[LinuxTask](https://github.com/JADRT22/LinuxTask)'s job. The two are
+complements: one plays back what you did, the other repeats one action at a
+rhythm you choose.
+
+![ClickTask window](assets/window.png)
+
+## Copy-paste in 30s
+
+```bash
+git clone https://github.com/JADRT22/ClickTask.git && cd ClickTask && ./tools/install.sh && ./run.sh
+```
+
+Press **F6** to start and stop. Everything else lives behind **Settings…**.
+
+## Table of contents
+
+- [Why another clicker](#why-another-clicker)
+- [Features](#features)
+- [Status](#status)
+  - [Known limitations](#known-limitations)
+- [How it works](#how-it-works)
+- [Getting started](#getting-started)
+  - [Requirements](#requirements) · [Install](#install) · [Run](#run)
+- [Usage](#usage)
+  - [GUI](#gui) · [Picking a point](#picking-a-point) · [Hotkey](#hotkey) · [CLI](#cli) · [Sequence file](#sequence-file-format)
+- [Security model](#security-model)
+- [Development](#development)
+  - [Project layout](#project-layout) · [Tests](#tests) · [Release process](#release-process)
+- [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
+- [Uninstall](#uninstall)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Why another clicker
+
+TinyTask and GS Auto Clicker solve different problems, and Linux already has a
+good answer for the first one:
+
+| | TinyTask | GS Auto Clicker | **ClickTask** |
+| :--- | :--- | :--- | :--- |
+| Model | Record & replay mouse **and keyboard** | Timer-driven clicks | Timer-driven clicks |
+| How you use it | Record once, replay the event stream | Configure interval/button, hit the hotkey | Same as GS, plus a CLI |
+| Timing | Comes from the recording (speed, loop) | Fixed interval (h/m/s/**ms**) | Fixed interval, down to 1 ms |
+| Keyboard | Records and replays it | Never touches it | Never touches it |
+| Targeting | Wherever you clicked while recording | Cursor or pinned point, plus click sequences | Cursor, pinned point, or point sequence |
+| Options | rec/play/speed/loop | Button, single/double, N clicks, hotkey | Button, single/double, hold, N clicks, hotkey |
+
+If you want "replay what I did", use
+[LinuxTask](https://github.com/JADRT22/LinuxTask). If you want "keep clicking
+this spot at this rate", this is the tool.
+
+## Features
+
+- **Interval control** — hours / minutes / seconds / milliseconds fields, 1 ms floor.
+- **Click options** — left, middle or right button; single or double click;
+  optional hold per press.
+- **Repeat** — click until stopped or exactly N times, with a live counter.
+- **Click-to-pick targeting** — press *Pick on screen*, then click the spot you
+  want; that click becomes the fixed point (Esc cancels).
+- **Click sequences** — ordered points, each with its own delay, button and
+  double-click flag, looped forever or a set number of times.
+- **Global hotkey** — F6 by default, configurable; one press starts, the next stops.
+- **Headless CLI** — the same engine from a script, with `--dry-run` to preview
+  the plan without moving the pointer.
+- **Persistent settings** — everything is remembered between runs.
+- **Small, quiet window** — one big button on a dark card, with a fade-in, a
+  slow pulse while clicking and a counter that pops on each click.
+
+## Status
+
+This README describes v1.0.0 (`VERSION` in `src/cli.py`).
+
+| Area | Support level |
+|---|---|
+| X11 desktops (XFCE, Cinnamon, MATE, i3, Openbox…) | **Supported.** Pointer capture verified by the author on a live X11 session; click injection covered by unit tests against a mocked X display |
+| Global hotkey (`XGrabKey`) | Supported, with CapsLock/NumLock variants |
+| Fixed position and click sequences | Supported, covered by engine tests |
+| `--dry-run` CLI | Supported, usable without a display |
+| Wayland (any compositor) | **Not supported** — `XTEST` cannot reach Wayland clients |
+| Keyboard automation / macro recording | **Not supported** — use [LinuxTask](https://github.com/JADRT22/LinuxTask) |
+
+### Known limitations
+
+- **X11 only.** On a Wayland session the app can open (XWayland) but its clicks
+  will not reach native Wayland windows.
+- **One screen, no coordinate offsets.** Positions are root-window coordinates
+  of the default screen; multi-monitor setups work only when the screens share
+  the X root window, which is the usual XFCE arrangement.
+- **1 ms is nominal.** The X server and the target application bound the real
+  click rate; below roughly 5 ms you are measuring your machine, not the
+  setting.
+- **The hotkey can be taken.** If another application already owns F6, the grab
+  fails; ClickTask says so and the CLI still works.
+- **The picker needs the pointer.** While picking, ClickTask grabs the pointer
+  for up to 60 s; another tool holding it at that moment produces an error
+  instead of a silent failure.
+- **Double-click gap is fixed** at 40 ms between the two presses.
+
+## How it works
+
+```mermaid
+graph TD
+    UI[tkinter window] -->|ClickPlan| Engine[ClickEngine · worker thread]
+    CLI[cli.py] -->|ClickPlan| Engine
+    Engine -->|move + click| XTest[X11Backend · XTEST]
+    Engine -->|move + click| Dry[DryRunBackend · tests, --dry-run]
+    Hotkey[HotkeyListener · XGrabKey] -->|toggle| UI
+    Picker[Pick on screen] -->|capture_click · XGrabPointer| UI
+    Engine -->|start / click / stop / error| UI
+```
+
+- **Engine**: a single worker thread schedules clicks against
+  `time.monotonic()`. If the system stalls and the next slot is already past,
+  the click happens immediately and the schedule re-anchors — a slow moment
+  never turns into a burst of catch-up clicks.
+- **Backends**: `X11Backend` injects presses/releases and pointer warps through
+  `XTEST`; `DryRunBackend` records the actions so tests, CI and `--dry-run`
+  never touch the pointer.
+- **Hotkey**: `XGrabKey` on the root window with the CapsLock/NumLock
+  variants, on its own X connection (python-xlib objects must not be shared
+  between threads). Auto-repeat is filtered, so one physical press is one
+  toggle.
+- **Picker**: `XGrabPointer` takes the next click away from whatever is under
+  the cursor and reports its coordinates, so picking a point never activates
+  anything.
+- **GUI**: builds a `ClickPlan` from the settings and shows engine state; it
+  never injects input itself. Animations and the counter are polled with
+  `after()`, keeping every tkinter call on the main thread.
+
+## Getting started
+
+### Requirements
+
+- Python ≥ 3.10 with Tk (`python3-tk` / `tk`)
+- `python-xlib` (installed by `tools/install.sh` into `.venv`, pinned in
+  `requirements.txt`)
+- A running X11 session (`$DISPLAY`)
+- Tkinter is needed for the GUI only; the CLI works without it
+
+### Install
+
+```bash
+git clone https://github.com/JADRT22/ClickTask.git
+cd ClickTask
+./tools/install.sh
+```
+
+The installer checks tkinter, creates `.venv`, installs `python-xlib` and
+reports whether a display is available. The canonical scripts live in
+`tools/` (`tools/install.sh`, `tools/run.sh`); the root `install.sh`/`run.sh`
+are thin wrappers, so `./run.sh click --help` works from the repo root.
+
+Manual setup, if you prefer your own Python:
+
+```bash
+sudo pacman -S tk          # or: sudo apt install python3-tk
+pip install python-xlib    # or: pip install -r requirements.txt
+python3 src/main.py        # GUI
+python3 src/cli.py --help  # CLI only
+```
+
+### Run
+
+```bash
+./run.sh                   # GUI
+./run.sh --help            # same entry point, CLI help
+systemd-run --user --unit=clicktask-gui ./run.sh   # optional: detached GUI
+```
+
+## Usage
+
+### GUI
+
+One big button and a counter. **Press F6 to click** starts the run; the button
+turns red and pulses while it clicks, and the same key (or the button) stops
+it. **Settings…** holds everything else:
+
+- **Clicker tab** — interval (h/m/s/ms), button, single/double, hold, repeat
+  mode, and the target (cursor or fixed point).
+- **Sequence tab** — the ordered point list, its loop count, and the picker.
+- **Toggle hotkey** — any X11 key name (`F6`, `F8`, `space`); press **Apply**.
+
+The active tab decides what Start runs: with **Sequence** selected, the list
+plays instead of the interval clicker.
+
+### Picking a point
+
+Picking does not read the cursor position on the spot. Press **Pick on screen**
+(Settings → Position) or **Pick point…** (Sequence tab); a toast asks for a
+click, and *that click* becomes the coordinate:
+
+- the click is grabbed, so nothing behind the cursor is activated;
+- **Esc** cancels;
+- the pick times out after 60 s;
+- if the pointer is already grabbed by another tool, you get an error dialog.
+
+### Hotkey
+
+`F6` toggles clicking from any window. Change the name in Settings and press
+**Apply**. Keys already owned by another application cannot be grabbed; the
+status line reports it and the CLI remains usable.
+
+### CLI
+
+```bash
+# 50 left clicks, one every 100 ms, at a fixed point
+./run.sh click --interval 100ms --count 50 --at 800,600
+
+# right-click forever until Ctrl+C, wherever the cursor is
+./run.sh click --interval 250ms --button right
+
+# double clicks, 10 ms hold each, every 1.5 s, 20 times
+./run.sh click --interval 1.5s --count 20 --double --hold 10
+
+# preview the plan without touching the pointer
+./run.sh click --interval 100ms --count 5 --at 400,300 --dry-run
+
+# replay a point sequence, 3 loops
+./run.sh seq points.json --interval 200ms --loops 3
+```
+
+Flags: `--interval` (`100`, `100ms`, `1.5s`, `2m`, `1h`), `--count` (0 =
+unlimited), `--button` (`left|middle|right`), `--double`, `--hold MS`, `--at
+X,Y`, `--dry-run`, `--display`.
+
+Exit codes: `0` ok, `1` no usable X display, `2` invalid arguments or plan,
+`130` interrupted with Ctrl+C.
+
+### Sequence file format
+
+```json
+[
+  { "x": 400, "y": 300, "delay_ms": 200 },
+  { "x": 900, "y": 300, "delay_ms": 500, "button": "right", "double": true }
+]
+```
+
+A JSON list of points, or the same list under a `points` key. Fields: `x`, `y`
+(required), `delay_ms` (0 inherits `--interval`), `button` (empty inherits the
+default), `double`, `hold_ms`.
+
+## Security model
+
+- **No root, no device nodes.** Everything goes through the X server as your
+  own user; there is no `uinput`, no `evdev` and no privileged helper.
+- **No network.** ClickTask never opens a socket; the only file it writes is
+  `$XDG_CONFIG_HOME/clicktask/config.json`.
+- **Grabs are short and visible.** The hotkey grabs one key on the root
+  window; the picker grabs the pointer only while a pick is open (Esc cancels,
+  60 s timeout) and releases it in a `finally` block.
+- **Input is local to your session.** `XTEST` events carry no privileges and
+  cannot be sent to another user's display.
+
+## Development
+
+### Project layout
+
+| Path | Purpose |
+| --- | --- |
+| `src/engine.py` | `ClickPlan`/`Point` + `ClickEngine` worker (interval + sequence modes) |
+| `src/backend.py` | `X11Backend` (XTEST), `DryRunBackend`, `capture_click` picker |
+| `src/hotkey.py` | `XGrabKey` listener with lock-modifier variants |
+| `src/config.py` | Defaults, validation, atomic load/save |
+| `src/cli.py` | Argument parsing, interval/point/sequence parsing, exit codes |
+| `src/gui.py` | tkinter window, settings dialog, animations, pick flow |
+| `src/main.py` | Route: no arguments → GUI, any argument → CLI |
+| `tests/` | unittest suite (engine, backend, config, hotkey, CLI, GUI) |
+
+### Tests
+
+```bash
+python3 -m unittest discover -s tests -t .
+python3 -m unittest tests/test_engine.py -v      # one module
+```
+
+80 tests. Engine, backend (mocked X display), config, hotkey and CLI need no
+display and never move your pointer; the 11 GUI tests use a hidden window and
+skip when `DISPLAY` is unset (CI). CI runs the suite on Python 3.10 and 3.12.
+
+Real input is verified manually — no test injects a click:
+
+```bash
+./run.sh click --interval 500ms --count 3 --at 500,300
+```
+
+### Release process
+
+1. Bump `VERSION` in `src/cli.py` and add a `CHANGELOG.md` section.
+2. Run the suite (and a manual click test on X11).
+3. `git tag vX.Y.Z && git push origin main --tags`.
+4. Publish a GitHub release whose notes are the new changelog section.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `ClickTask: no usable display` | Run it inside your X session (`echo $DISPLAY`), not from a TTY or a root shell without `XAUTHORITY` |
+| `clicktask: cannot open the X display` | Same as above; with `sudo`, `XAUTHORITY` points at root's home |
+| Button works, **F6** does nothing | Another app owns F6; pick `F8`/`space` in Settings → Apply |
+| `Hotkey unavailable: …` | The grab failed (key taken, or no X connection); the GUI still works with the button |
+| `could not grab the pointer` while picking | Another tool holds the pointer grab; close it and retry |
+| Clicks reach nothing on Wayland | Expected: `XTEST` cannot reach Wayland clients |
+| Clicks are slower than 1 ms | The X server and the target app bound the rate; see limitations |
+| `tkinter is missing` from the installer | `sudo pacman -S tk` / `sudo apt install python3-tk` |
+
+## FAQ
+
+**Is this a macro recorder?** No. It repeats one action on a timer. Recorder and
+keyboard replay live in [LinuxTask](https://github.com/JADRT22/LinuxTask).
+
+**Does it work on Wayland?** No, by design. Native Wayland input injection
+needs a different backend (portal or `uinput`), which is out of scope for v1.
+
+**Can I use it without opening a window?** Yes: `./run.sh click --count 100
+--interval 50ms --at 800,600`, or `--dry-run` to check the plan first.
+
+**Why does it need a hotkey grab at all?** To start and stop from the
+application you are clicking, without switching windows.
+
+**Can I start it at login?** `systemd-run --user --unit=clicktask-gui ./run.sh`
+or an XFCE autostart entry pointing at `./run.sh`.
+
+**Does it click while the screen is locked?** The X server stops delivering
+input to locked sessions; treat any behaviour there as unsupported.
+
+## Uninstall
+
+```bash
+./tools/uninstall.sh              # removes .venv and __pycache__
+./tools/uninstall.sh --purge      # also deletes ~/.config/clicktask
+```
+
+Nothing else is installed system-wide: no packages, no services, no udev
+rules.
+
+## Contributing
+
+Bug reports with the exact command, your desktop (name + X11/Wayland), and the
+output of `--dry-run` are the most useful. Please keep changes small and run
+the suite before opening a pull request. See
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE). Design notes and non-goals:
+[docs/SPEC.md](docs/SPEC.md).

@@ -1,0 +1,4 @@
+# ClickTask runtime dependency.
+# Clicking, pointer moves and the global hotkey all go through python-xlib
+# (XTEST + XGrabKey). The GUI uses tkinter, which ships with Python.
+python-xlib==0.33
