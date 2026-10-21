@@ -10,6 +10,7 @@ Author: JADRT22 (https://github.com/JADRT22)
 License: MIT
 """
 
+import os
 import queue
 import threading
 import tkinter as tk
@@ -20,6 +21,7 @@ import backend
 import config
 import engine
 import hotkey
+from version import VERSION
 
 APP_TITLE = "ClickTask"
 
@@ -56,10 +58,12 @@ class ClickTaskApp:
         self._toast_label = None
         self._toast_message = ""
         self._last_count = -1
+        self._update_running = False
 
         root.title(APP_TITLE)
         root.configure(bg=BG)
         root.resizable(False, False)
+        self._set_window_icon()
 
         self._build_vars()
         self._setup_style()
@@ -74,8 +78,24 @@ class ClickTaskApp:
         # Window managers often ignore a pre-map geometry request; nudge it once
         # the window is actually on screen so it lands centred.
         self._schedule("center", 80, lambda: self._center(self.root))
+        self._auto_update_startup()
 
     # --- construction ---
+
+    def _set_window_icon(self):
+        """Use the same icon as the menu entry, when the asset is around."""
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "assets",
+            "clicktask.png",
+        )
+        if not os.path.exists(path):
+            return
+        try:
+            self._icon = tk.PhotoImage(file=path)
+            self.root.iconphoto(True, self._icon)
+        except tk.TclError:
+            pass
 
     def _build_vars(self):
         interval = int(self.settings["interval_ms"])
@@ -98,6 +118,8 @@ class ClickTaskApp:
         self.var_status = tk.StringVar(value="Idle")
         self.var_counter = tk.StringVar(value="0 clicks")
         self.var_toggle = tk.StringVar(value=self._toggle_label(False))
+        self.var_auto_update = tk.BooleanVar(value=bool(self.settings["auto_update"]))
+        self.var_update = tk.StringVar(value=f"v{VERSION}")
 
     def _font(self, size, weight="normal"):
         family = tkfont.nametofont("TkDefaultFont").cget("family")
@@ -222,8 +244,17 @@ class ClickTaskApp:
         self._build_clicker_tab(self.notebook)
         self._build_sequence_tab(self.notebook)
 
+        updates_row = ttk.Frame(outer, style="Card.TFrame")
+        updates_row.pack(fill="x", pady=(8, 0))
+        ttk.Checkbutton(updates_row, text="Auto-update on new releases",
+                        variable=self.var_auto_update).pack(side="left")
+        ttk.Button(updates_row, text="Check now", command=lambda: self.check_updates(True),
+                   style="Ghost.TButton").pack(side="right")
+        ttk.Label(outer, textvariable=self.var_update, style="Status.TLabel",
+                  wraplength=400).pack(fill="x", pady=(2, 0))
+
         hotkey_row = ttk.Frame(outer, style="Card.TFrame")
-        hotkey_row.pack(fill="x", pady=(10, 0))
+        hotkey_row.pack(fill="x", pady=(8, 0))
         ttk.Label(hotkey_row, text="Toggle hotkey:", style="Status.TLabel").pack(side="left")
         ttk.Entry(hotkey_row, textvariable=self.var_hotkey, width=8).pack(side="left", padx=6)
         ttk.Button(hotkey_row, text="Apply", command=self._start_hotkey,
@@ -651,6 +682,71 @@ class ClickTaskApp:
         # Called from the listener thread: hand control back to tkinter.
         self.root.after(0, self.toggle)
 
+    # --- updates ---
+
+    def _auto_update_startup(self):
+        """Check once when a managed install opens; never touch a git checkout."""
+        if os.environ.get("CLICKTASK_NO_UPDATE") or not self.settings.get("auto_update", True):
+            return
+        try:
+            import updater
+        except Exception:  # pragma: no cover - defensive: no updater, no check
+            return
+        if not updater.is_managed():
+            return
+        self.check_updates(manual=False)
+
+    def check_updates(self, manual=False):
+        if self._update_running:
+            return
+        self._update_running = True
+        if manual:
+            self.var_update.set(f"v{VERSION} — checking…")
+        threading.Thread(target=self._update_worker, args=(manual,), daemon=True).start()
+
+    def _update_worker(self, manual):
+        try:
+            import updater
+
+            release = updater.fetch_latest_release()
+            current = updater.installed_version()
+            if not updater.is_newer(release["version"], current):
+                result, error = {"updated": False, "version": current}, None
+            else:
+                outcome = updater.apply_release(release)
+                result = {
+                    "updated": bool(outcome.get("updated")),
+                    "version": outcome.get("to", release["version"]),
+                }
+                error = None
+        except Exception as exc:  # network, permissions, archive: all reported
+            result, error = None, str(exc)
+        try:
+            self.root.after(0, lambda: self._update_done(manual, result, error))
+        except (tk.TclError, RuntimeError):
+            pass
+
+    def _update_done(self, manual, result, error):
+        self._update_running = False
+        if error is not None:
+            self.var_update.set("update check failed")
+            if manual:
+                messagebox.showwarning(APP_TITLE, f"Could not check for updates:\n{error}")
+            return
+        version = result.get("version", VERSION)
+        if result.get("updated"):
+            self.var_update.set(f"v{version} installed — restart to apply")
+            self.var_status.set(f"Updated to {version} — restart ClickTask")
+            if manual:
+                messagebox.showinfo(
+                    APP_TITLE,
+                    f"ClickTask {version} was installed.\nRestart the app to use it.",
+                )
+        else:
+            self.var_update.set(f"v{version} — up to date")
+            if manual:
+                messagebox.showinfo(APP_TITLE, f"ClickTask {version} is up to date.")
+
     # --- persistence ---
 
     def current_settings(self):
@@ -663,6 +759,7 @@ class ClickTaskApp:
             "use_fixed_position": self.var_fixed.get(),
             "position": list(self.position()) if self.position() else None,
             "hotkey": self.var_hotkey.get().strip() or "F6",
+            "auto_update": self.var_auto_update.get(),
             "sequence_loops": self._read_int(self.var_loops),
             "points": [
                 {

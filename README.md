@@ -21,10 +21,13 @@ rhythm you choose.
 ## Copy-paste in 30s
 
 ```bash
-git clone https://github.com/JADRT22/ClickTask.git && cd ClickTask && ./tools/install.sh && ./run.sh
+git clone https://github.com/JADRT22/ClickTask.git && cd ClickTask && ./install.sh
 ```
 
-Press **F6** to start and stop. Everything else lives behind **Settings…**.
+The installer puts **ClickTask** in the application menu (so it shows up in the
+search bar), adds a shortcut to your desktop and creates the `clicktask`
+command. Open it from any of them and press **F6** to start and stop; everything
+else lives behind **Settings…**.
 
 ## Table of contents
 
@@ -35,6 +38,7 @@ Press **F6** to start and stop. Everything else lives behind **Settings…**.
 - [How it works](#how-it-works)
 - [Getting started](#getting-started)
   - [Requirements](#requirements) · [Install](#install) · [Run](#run)
+- [Updates](#updates)
 - [Usage](#usage)
   - [GUI](#gui) · [Picking a point](#picking-a-point) · [Hotkey](#hotkey) · [CLI](#cli) · [Sequence file](#sequence-file-format)
 - [Security model](#security-model)
@@ -80,10 +84,16 @@ this spot at this rate", this is the tool.
 - **Persistent settings** — everything is remembered between runs.
 - **Small, quiet window** — one big button on a dark card, with a fade-in, a
   slow pulse while clicking and a counter that pops on each click.
+- **Installs like an app** — one user-level installer adds a menu entry (found
+  by the desktop search bar), a desktop shortcut, the icon and a `clicktask`
+  command; no sudo and no system directories.
+- **Self-update** — installed builds check GitHub on startup and every day, so a
+  published release replaces the code by itself; the venv and your settings are
+  kept.
 
 ## Status
 
-This README describes v1.0.0 (`VERSION` in `src/cli.py`).
+This README describes v1.1.0 (`VERSION` in `src/version.py`).
 
 | Area | Support level |
 |---|---|
@@ -122,6 +132,8 @@ graph TD
     Hotkey[HotkeyListener · XGrabKey] -->|toggle| UI
     Picker[Pick on screen] -->|capture_click · XGrabPointer| UI
     Engine -->|start / click / stop / error| UI
+    Menu[Menu entry / desktop shortcut] -->|clicktask| UI
+    Updater[updater.py · GitHub release] -->|atomic swap| Tree[installed tree]
 ```
 
 - **Engine**: a single worker thread schedules clicks against
@@ -147,7 +159,7 @@ graph TD
 ### Requirements
 
 - Python ≥ 3.10 with Tk (`python3-tk` / `tk`)
-- `python-xlib` (installed by `tools/install.sh` into `.venv`, pinned in
+- `python-xlib` (installed by `./install.sh` into the app's own venv, pinned in
   `requirements.txt`)
 - A running X11 session (`$DISPLAY`)
 - Tkinter is needed for the GUI only; the CLI works without it
@@ -157,13 +169,25 @@ graph TD
 ```bash
 git clone https://github.com/JADRT22/ClickTask.git
 cd ClickTask
-./tools/install.sh
+./install.sh
 ```
 
-The installer checks tkinter, creates `.venv`, installs `python-xlib` and
-reports whether a display is available. The canonical scripts live in
-`tools/` (`tools/install.sh`, `tools/run.sh`); the root `install.sh`/`run.sh`
-are thin wrappers, so `./run.sh click --help` works from the repo root.
+`./install.sh` copies the app to `~/.local/share/clicktask`, creates its venv,
+installs `python-xlib`, then registers everything a desktop app needs:
+
+| What | Where |
+| --- | --- |
+| `clicktask` launcher | `~/.local/bin/clicktask` |
+| menu entry (search bar) | `~/.local/share/applications/clicktask.desktop` |
+| desktop shortcut | your XDG desktop folder, e.g. `~/Desktop/ClickTask.desktop` |
+| icon | `~/.local/share/icons/hicolor/…/clicktask.svg` + 64px PNG |
+| daily update timer | `~/.config/systemd/user/clicktask-update.{service,timer}` |
+
+Options: `--prefix DIR` (install elsewhere), `--no-desktop` (skip the desktop
+shortcut), `--no-autoupdate` (no timer). Nothing needs root: no packages, no
+system directories, no udev rules. The canonical scripts live in `tools/`
+(`install.sh`, `run.sh`, `update.sh`, `uninstall.sh`); the root `install.sh` and
+`run.sh` are thin wrappers, so `./run.sh click --help` works from the checkout.
 
 Manual setup, if you prefer your own Python:
 
@@ -177,10 +201,43 @@ python3 src/cli.py --help  # CLI only
 ### Run
 
 ```bash
-./run.sh                   # GUI
-./run.sh --help            # same entry point, CLI help
-systemd-run --user --unit=clicktask-gui ./run.sh   # optional: detached GUI
+clicktask                  # GUI, from the installed launcher
+clicktask --help           # CLI help
+tools/update.sh --check    # is there a newer release?
+./run.sh                   # GUI straight from the checkout
+./run.sh click --count 10 --interval 100ms
 ```
+
+The menu entry, the desktop shortcut and the `clicktask` command all run the
+same installed copy.
+
+## Updates
+
+Installed builds update themselves from
+[GitHub releases](https://github.com/JADRT22/ClickTask/releases):
+
+- **On startup** — the GUI checks once in the background and, when a newer tag
+exists, downloads and installs it. The window then says *Updated to vX.Y.Z —
+restart ClickTask*.
+- **Every day** — the systemd user timer `clicktask-update.timer` runs
+`clicktask update --quiet`, so the files are current even if you never open the
+app.
+- **On demand** — `clicktask update --check` reports the versions,
+`clicktask update` installs, `clicktask update --force` reinstalls the latest
+release.
+
+The update downloads the release tarball to a temporary directory, checks that
+it contains `src/main.py` and that no entry escapes the folder, and only then
+swaps `src/`, `tools/`, `docs/` and `assets/` in place. Your `.venv`, settings and
+shortcuts are preserved; if `requirements.txt` changed, the dependencies are
+reinstalled inside the venv. Old modules the release removed disappear with the
+swap.
+
+Turn it off in **Settings… → Auto-update on new releases** (startup check) or
+skip the timer with `./install.sh --no-autoupdate`. `CLICKTASK_NO_UPDATE=1`
+disables the startup check for a single run. Auto-update never runs from a git
+checkout: only trees created by the installer are touched, so development is
+safe.
 
 ## Usage
 
@@ -258,8 +315,12 @@ default), `double`, `hold_ms`.
 
 - **No root, no device nodes.** Everything goes through the X server as your
   own user; there is no `uinput`, no `evdev` and no privileged helper.
-- **No network.** ClickTask never opens a socket; the only file it writes is
-  `$XDG_CONFIG_HOME/clicktask/config.json`.
+- **One outbound request, only for updates.** Clicking never opens a socket.
+  Installed builds read the latest release from `api.github.com` on startup and
+  once a day, then download the release tarball from GitHub; the archive layout
+  is verified before any file is replaced and symlinks are rejected. Turn it off
+  in Settings or at install time. Locally, the only files written are
+  `$XDG_CONFIG_HOME/clicktask/config.json` and the install folder.
 - **Grabs are short and visible.** The hotkey grabs one key on the root
   window; the picker grabs the pointer only while a pick is open (Esc cancels,
   60 s timeout) and releases it in a `finally` block.
@@ -277,9 +338,12 @@ default), `double`, `hold_ms`.
 | `src/hotkey.py` | `XGrabKey` listener with lock-modifier variants |
 | `src/config.py` | Defaults, validation, atomic load/save |
 | `src/cli.py` | Argument parsing, interval/point/sequence parsing, exit codes |
-| `src/gui.py` | tkinter window, settings dialog, animations, pick flow |
+| `src/gui.py` | tkinter window, settings dialog, animations, pick flow, update check |
+| `src/installer.py` | Launcher, menu/desktop entries, icon, systemd timer, uninstall |
+| `src/updater.py` | GitHub release check, tarball download, safe atomic swap |
+| `src/version.py` | `VERSION` (single source of truth) and the repository slug |
 | `src/main.py` | Route: no arguments → GUI, any argument → CLI |
-| `tests/` | unittest suite (engine, backend, config, hotkey, CLI, GUI) |
+| `tests/` | unittest suite (engine, backend, config, hotkey, CLI, GUI, installer, updater) |
 
 ### Tests
 
@@ -288,9 +352,11 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-80 tests. Engine, backend (mocked X display), config, hotkey and CLI need no
-display and never move your pointer; the 11 GUI tests use a hidden window and
-skip when `DISPLAY` is unset (CI). CI runs the suite on Python 3.10 and 3.12.
+110 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer and
+updater need no display, network or systemd and never move your pointer; the 11
+GUI tests use a hidden window and skip when `DISPLAY` is unset (CI). The
+installer/updater tests work inside a temporary `$HOME`. CI runs the suite on
+Python 3.10 and 3.12.
 
 Real input is verified manually — no test injects a click:
 
@@ -300,10 +366,12 @@ Real input is verified manually — no test injects a click:
 
 ### Release process
 
-1. Bump `VERSION` in `src/cli.py` and add a `CHANGELOG.md` section.
+1. Bump `VERSION` in `src/version.py` and add a `CHANGELOG.md` section.
 2. Run the suite (and a manual click test on X11).
 3. `git tag vX.Y.Z && git push origin main --tags`.
 4. Publish a GitHub release whose notes are the new changelog section.
+5. Nothing else: installed builds pick the release up on startup or on the next
+timer run (`clicktask update --check` shows it immediately).
 
 ## Troubleshooting
 
@@ -317,6 +385,10 @@ Real input is verified manually — no test injects a click:
 | Clicks reach nothing on Wayland | Expected: `XTEST` cannot reach Wayland clients |
 | Clicks are slower than 1 ms | The X server and the target app bound the rate; see limitations |
 | `tkinter is missing` from the installer | `sudo pacman -S tk` / `sudo apt install python3-tk` |
+| `clicktask: command not found` | `~/.local/bin` is not in `PATH`; open from the menu or add it to your shell profile |
+| Desktop icon opens nothing | Re-run `./install.sh`; on XFCE right-click it and choose *Allow launching* if the file manager asks |
+| `update check failed` | No network, GitHub blocked, or an API rate limit; `clicktask update --check` shows the reason and clicking still works |
+| Update installed but version unchanged | Restart ClickTask: the running process keeps the code it loaded |
 
 ## FAQ
 
@@ -332,8 +404,20 @@ needs a different backend (portal or `uinput`), which is out of scope for v1.
 **Why does it need a hotkey grab at all?** To start and stop from the
 application you are clicking, without switching windows.
 
-**Can I start it at login?** `systemd-run --user --unit=clicktask-gui ./run.sh`
-or an XFCE autostart entry pointing at `./run.sh`.
+**Where does it install?** `~/.local/share/clicktask`, with the launcher in
+`~/.local/bin`, the menu entry in `~/.local/share/applications` and the timer in
+`~/.config/systemd/user`. Nothing outside your home directory is touched.
+
+**Do I have to update it by hand?** No. Installed builds check on startup and a
+daily timer keeps them current; use `clicktask update --check` if you are
+impatient.
+
+**Does it phone home while clicking?** No. The only network request is the
+release check, and it never happens during a run.
+
+**Can I start it at login?** Add `clicktask` to your desktop's autostart
+(XFCE: *Settings → Session and Startup*). The install already gives it a menu
+entry and a desktop shortcut.
 
 **Does it click while the screen is locked?** The X server stops delivering
 input to locked sessions; treat any behaviour there as unsupported.
@@ -341,12 +425,13 @@ input to locked sessions; treat any behaviour there as unsupported.
 ## Uninstall
 
 ```bash
-./tools/uninstall.sh              # removes .venv and __pycache__
+./tools/uninstall.sh              # launcher, menu entry, desktop shortcut, icon, timer, app folder
 ./tools/uninstall.sh --purge      # also deletes ~/.config/clicktask
 ```
 
-Nothing else is installed system-wide: no packages, no services, no udev
-rules.
+Run it from the installed copy (`~/.local/share/clicktask/tools/uninstall.sh`)
+or from the checkout. Nothing else is installed system-wide: no packages, no
+system services, no udev rules.
 
 ## Contributing
 

@@ -14,3 +14,7 @@ dist/
 config.json
 *.log
 *.tmp
+
+# Installer / updater state (live inside the install prefix)
+.clicktask-install
+.update.lock

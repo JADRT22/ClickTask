@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 import backend  # noqa: E402
 import cli  # noqa: E402
 import engine  # noqa: E402
+import updater  # noqa: E402
 
 
 class ParseIntervalTests(unittest.TestCase):
@@ -173,6 +174,52 @@ class DryRunTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 cli.main(["--version"])
         self.assertEqual(raised.exception.code, 0)
+
+
+class UpdateCliTests(unittest.TestCase):
+    release = {
+        "version": "9.9.9",
+        "tag": "v9.9.9",
+        "tarball_url": "https://example.invalid/tar.gz",
+    }
+
+    def capture(self, argv):
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_check_reports_an_available_update(self):
+        with patch("updater.fetch_latest_release", return_value=self.release), \
+                patch("updater.installed_version", return_value="1.1.0"):
+            code, out, _err = self.capture(["update", "--check"])
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertIn("update available: 9.9.9", out)
+
+    def test_check_reports_up_to_date(self):
+        with patch("updater.fetch_latest_release", return_value=self.release), \
+                patch("updater.installed_version", return_value="9.9.9"):
+            code, out, _err = self.capture(["update", "--check"])
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertIn("up to date", out)
+
+    def test_update_applies_and_reports_the_versions(self):
+        applied = {"updated": True, "from": "1.0.0", "to": "9.9.9"}
+        with patch("updater.fetch_latest_release", return_value=self.release), \
+                patch("updater.installed_version", return_value="1.0.0"), \
+                patch("updater.apply_release", return_value=applied):
+            code, out, _err = self.capture(["update"])
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertIn("updated 1.0.0 → 9.9.9", out)
+
+    def test_network_failure_is_a_backend_error(self):
+        with patch(
+            "updater.fetch_latest_release", side_effect=updater.UpdateError("offline")
+        ):
+            code, _out, err = self.capture(["update", "--check"])
+        self.assertEqual(code, cli.EXIT_BACKEND)
+        self.assertIn("offline", err)
 
 
 if __name__ == "__main__":

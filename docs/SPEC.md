@@ -24,13 +24,17 @@ replay an ordered list of points in a loop — from the GUI or from a script.
 - Global start/stop hotkey on X11 (default F6, configurable).
 - Headless CLI with `--dry-run` for both modes.
 - Settings persisted at `$XDG_CONFIG_HOME/clicktask/config.json`.
+- User-level install with menu entry, desktop shortcut, icon and `clicktask`
+  launcher (recognised by the desktop search bar).
+- Self-update from GitHub releases, on startup and by a daily user timer, with
+  the venv and settings preserved.
 
 **Out of scope (v1)**
 
 - Wayland input injection (XTEST does not reach Wayland clients).
 - Keyboard automation and macro recording (LinuxTask's job).
 - Image/colour detection triggers, scheduled runs, multiple simultaneous plans.
-- Packaging beyond `tools/install.sh` (no AppImage/Flatpak yet).
+- Binary packaging (AppImage/Flatpak); the installer is source + venv.
 
 ## Architecture
 
@@ -41,7 +45,10 @@ replay an ordered list of points in a loop — from the GUI or from a script.
 | `src/hotkey.py` | `HotkeyListener`: `XGrabKey` on the root window with CapsLock/NumLock variants, own `Display` connection, auto-repeat filtered. |
 | `src/config.py` | `DEFAULTS`, `normalize()` validation, atomic `load()`/`save()`. |
 | `src/cli.py` | Argument parsing, interval/point/sequence-file parsing, plan building, exit codes. |
-| `src/gui.py` | tkinter minimal window (big toggle button, counter, fade-in/pulse/pop animations) plus a Settings dialog holding the Clicker/Sequence tabs, hotkey field, click-to-pick flow, plan building and config save on close. |
+| `src/gui.py` | tkinter minimal window (big toggle button, counter, fade-in/pulse/pop animations) plus a Settings dialog holding the Clicker/Sequence tabs, hotkey field, click-to-pick flow, update toggle, plan building and config save on close. |
+| `src/installer.py` | Launcher, menu/desktop entries, icon, systemd update timer, uninstall; all paths under `$HOME`. |
+| `src/updater.py` | GitHub release lookup, tarball download, archive validation, atomic swap of managed folders, dependency refresh. |
+| `src/version.py` | `VERSION` and `REPOSITORY`. |
 | `src/main.py` | Route: no arguments → GUI, any argument → CLI. |
 
 **Data flow.** GUI or CLI builds a `ClickPlan` → `ClickPlan.validate()` →
@@ -68,6 +75,7 @@ An unreadable or corrupt config falls back to defaults.
 ```
 clicktask click --interval 100ms --count 50 --button left [--double] [--hold MS] [--at X,Y] [--dry-run]
 clicktask seq points.json --interval 100ms --loops 3 [--button left] [--count N] [--dry-run]
+clicktask update [--check] [--force] [--quiet]
 ```
 
 Exit codes: `0` success, `1` backend unavailable, `2` invalid arguments or plan,
@@ -79,9 +87,10 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 80 tests. The engine, backend,
-config, hotkey and CLI tests need no display; the 11 GUI tests use a hidden
-window and are skipped when `DISPLAY` is unset. Nothing moves your pointer:
+`python3 -m unittest discover -s tests -t .` — 110 tests. The engine, backend,
+config, hotkey, CLI, installer and updater tests need no display, network or
+systemd; the 11 GUI tests use a hidden window and are skipped when `DISPLAY` is
+unset. Nothing moves your pointer:
 
 - engine: counts, interval spacing, fixed vs cursor position, sequence order and
   loops, stop mid-run, backend error propagation, plan validation;
@@ -91,7 +100,12 @@ window and are skipped when `DISPLAY` is unset. Nothing moves your pointer:
 - hotkey: name parsing, grab/ungrab lock variants, auto-repeat filtering;
 - CLI: interval/point/sequence parsing, plan building, dry-run runs, exit codes;
 - point picking: grab success, returned coordinates, Escape cancel, timeout,
-  grab failure, and the GUI applying/cancelling a pick.
+  grab failure, and the GUI applying/cancelling a pick;
+- installer: launcher/menu/desktop entry contents, icon, timer units, refresh,
+  uninstall and purge, all inside a temporary `$HOME`;
+- updater: version comparison, GitHub payload validation, unsafe archive
+  rejection, full apply from a fake tarball, dependency refresh, uninstall of
+  removed modules, and the managed-install guard.
 
 Real input injection is verified manually on an X11 session (see README).
 
@@ -105,3 +119,10 @@ Real input injection is verified manually on an X11 session (see README).
   rate; very small intervals mean "as fast as the system allows".
 - **Hotkey grab conflicts** — if another app owns F6, the grab fails; the GUI
   reports it and the CLI still works.
+- **Updates are opt-out, not mandatory** — installed builds check GitHub on
+  startup and daily; `--no-autoupdate`, the Settings toggle and
+  `CLICKTASK_NO_UPDATE=1` can disable them. Tarballs are validated (layout,
+  no links, no path escapes) before `os.replace` swaps the tree; failures roll
+  back to the previous files.
+- **Auto-update only for installed trees** — a marker file identifies installs,
+  so a git checkout is never overwritten by mistake.

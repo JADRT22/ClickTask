@@ -24,6 +24,7 @@ DEFAULTS = {
     "hotkey": "F6",
     "sequence_loops": 0,
     "points": [],
+    "auto_update": True,  # installed builds check GitHub on startup + daily
 }
 
 BUTTONS = ("left", "middle", "right")
@@ -86,6 +87,7 @@ def normalize(raw):
         raw.get("sequence_loops"), DEFAULTS["sequence_loops"], 0
     )
     settings["points"] = [_normalize_point(p) for p in raw.get("points") or [] if isinstance(p, dict)]
+    settings["auto_update"] = bool(raw.get("auto_update", DEFAULTS["auto_update"]))
     return settings
 
 

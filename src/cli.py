@@ -15,8 +15,7 @@ import sys
 
 import backend
 import engine
-
-VERSION = "1.0.0"
+from version import VERSION
 
 INTERVAL_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\s*$", re.IGNORECASE)
 INTERVAL_UNITS = {"ms": 1.0, "s": 1000.0, "m": 60000.0, "h": 3600000.0}
@@ -122,7 +121,61 @@ def build_parser():
     seq.add_argument("--button", default="left", choices=list(engine.BUTTONS))
     seq.add_argument("--interval", default="100ms", help="default delay between points")
 
+    update = subparsers.add_parser(
+        "update", help="check GitHub for a new release and install it"
+    )
+    update.add_argument(
+        "--check", action="store_true", help="report the latest release without installing"
+    )
+    update.add_argument(
+        "--force", action="store_true", help="reinstall the latest release even if up to date"
+    )
+    update.add_argument(
+        "--quiet", action="store_true", help="only print changes and errors"
+    )
+
     return parser
+
+
+def run_update(args):
+    """`clicktask update`: compare with the latest GitHub release and apply it."""
+    import updater
+
+    try:
+        release = updater.fetch_latest_release()
+    except updater.UpdateError as exc:
+        print(f"clicktask: update check failed: {exc}", file=sys.stderr)
+        return EXIT_BACKEND
+
+    current = updater.installed_version()
+    newer = updater.is_newer(release["version"], current)
+    if not args.quiet:
+        print(f"installed {current} · latest {release['version']}")
+
+    if args.check:
+        if newer:
+            print(f"update available: {release['version']} (run `clicktask update`)")
+        else:
+            print("up to date")
+        return EXIT_OK
+
+    if not newer and not args.force:
+        if not args.quiet:
+            print("up to date")
+        return EXIT_OK
+
+    try:
+        result = updater.apply_release(release, force=args.force)
+    except updater.UpdateError as exc:
+        print(f"clicktask: update failed: {exc}", file=sys.stderr)
+        return EXIT_BACKEND
+
+    print(
+        f"updated {result['from']} → {result['to']} "
+        f"({updater.installed_root()})"
+    )
+    print("restart ClickTask to use the new version")
+    return EXIT_OK
 
 
 def parse_number(text, flag):
@@ -208,6 +261,8 @@ def main(argv=None):
     if not args.command:
         parser.print_help()
         return EXIT_OK
+    if args.command == "update":
+        return run_update(args)
     try:
         plan = plan_from_args(args)
     except ValueError as exc:
