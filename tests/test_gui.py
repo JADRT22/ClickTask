@@ -25,6 +25,13 @@ import gui  # noqa: E402
 import hotkey  # noqa: E402
 
 DISPLAY = os.environ.get("DISPLAY")
+REQUIRE_DISPLAY = os.environ.get("CLICKTASK_REQUIRE_DISPLAY") == "1"
+
+
+@unittest.skipUnless(REQUIRE_DISPLAY, "only when a display is required")
+class DisplayRequiredTests(unittest.TestCase):
+    def test_display_is_available(self):
+        self.assertTrue(DISPLAY, "CLICKTASK_REQUIRE_DISPLAY=1 but DISPLAY is unset")
 
 
 @unittest.skipUnless(DISPLAY, "no X display")

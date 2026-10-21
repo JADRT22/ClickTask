@@ -90,10 +90,13 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 145 tests. The engine, backend,
-config, hotkey, CLI, installer, updater, single-instance and doctor tests need no
-display, network or systemd; the 23 GUI tests use a hidden window and are skipped
-when `DISPLAY` is unset. Nothing moves your pointer:
+`python3 -m unittest discover -s tests -t .` — 148 tests. The engine, backend,
+config, hotkey, CLI, installer, updater, single-instance, doctor and XTEST
+integration tests add 3 gated cases (display guard + real move/click) that only
+run with `CLICKTASK_REQUIRE_DISPLAY=1` / `CLICKTASK_X11_TEST=1`; the 23 GUI tests
+use a hidden window and are skipped when `DISPLAY` is unset. A CI job runs the
+whole suite under Xvfb, so the GUI tests and a real XTEST click are exercised
+there. In the normal suite nothing moves your pointer:
 
 - engine: counts, interval spacing, fixed vs cursor position, sequence order and
   loops, stop mid-run, backend error propagation, plan validation;
@@ -110,7 +113,8 @@ when `DISPLAY` is unset. Nothing moves your pointer:
   rejection, full apply from a fake tarball, dependency refresh, uninstall of
   removed modules, and the managed-install guard.
 
-Real input injection is verified manually on an X11 session (see README).
+Real input injection is verified manually on an X11 session and automatically
+by the env-gated XTEST test inside Xvfb (see README).
 
 ## Decisions and risks
 

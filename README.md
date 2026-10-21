@@ -356,7 +356,7 @@ default), `double`, `hold_ms`.
 | `src/singleinstance.py` | Unix-socket guard; a second launch raises the running window |
 | `src/doctor.py` | `clicktask doctor` checks (environment, install, timer, cache) |
 | `src/main.py` | Route: no arguments → GUI, any argument → CLI |
-| `tests/` | unittest suite (engine, backend, config, hotkey, CLI, GUI, installer, updater, instance, doctor) |
+| `tests/` | unittest suite (engine, backend, config, hotkey, CLI, GUI, installer, updater, instance, doctor, XTEST integration) |
 
 ### Tests
 
@@ -365,14 +365,14 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-145 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer,
-updater, single-instance and doctor need no display, network or systemd and never
-move your pointer; the 23 GUI tests use a hidden window and skip when `DISPLAY`
-is unset (CI). The
-installer/updater tests work inside a temporary `$HOME`. CI runs the suite on
-Python 3.10 and 3.12.
+148 tests: 145 run headless and never move the pointer, plus 3 gated ones (a
+display guard and two real XTEST checks). The 23 GUI tests use a hidden window
+and skip when `DISPLAY` is unset; the installer/updater tests work inside a
+temporary `$HOME`. CI runs the headless suite on Python 3.10 and 3.12, and a
+separate job under **Xvfb** where the GUI tests and the XTEST click actually run
+(`CLICKTASK_REQUIRE_DISPLAY=1`, `CLICKTASK_X11_TEST=1`).
 
-Real input is verified manually — no test injects a click:
+Real input is also verified manually:
 
 ```bash
 ./run.sh click --interval 500ms --count 3 --at 500,300

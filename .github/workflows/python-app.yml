@@ -31,3 +31,31 @@ jobs:
 
       - name: Unit tests (no display, no input injection)
         run: python -m unittest discover -s tests -t . -v
+
+  gui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Xvfb and Tk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb python3-tk python3-venv
+
+      - name: Create venv and install dependencies
+        run: |
+          python3 -m venv .venv-ci
+          .venv-ci/bin/pip install --upgrade pip
+          .venv-ci/bin/pip install -r requirements.txt
+
+      - name: Check GUI dependencies
+        run: |
+          .venv-ci/bin/python -c "import tkinter, Xlib; print('Tk', tkinter.TkVersion)"
+
+      - name: GUI tests and real XTEST click under Xvfb
+        env:
+          CLICKTASK_REQUIRE_DISPLAY: "1"
+          CLICKTASK_X11_TEST: "1"
+        run: |
+          xvfb-run -a -s "-screen 0 1280x1024x24" \
+            .venv-ci/bin/python -m unittest discover -s tests -t . -v
