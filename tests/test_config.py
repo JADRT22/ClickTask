@@ -58,6 +58,25 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(settings["points"][0]["button"], "right")
         self.assertEqual(settings["points"][1]["button"], "")
 
+    def test_point_hold_is_kept_and_clamped(self):
+        settings = config.normalize(
+            {
+                "points": [
+                    {"x": 1, "y": 2, "hold_ms": 25},
+                    {"x": 3, "y": 4, "hold_ms": -5},
+                    {"x": 5, "y": 6, "hold_ms": 10 ** 9},
+                ]
+            }
+        )
+        self.assertEqual(settings["points"][0]["hold_ms"], 25)
+        self.assertEqual(settings["points"][1]["hold_ms"], 0)
+        self.assertEqual(settings["points"][2]["hold_ms"], 60000)
+
+    def test_sequence_count_is_validated(self):
+        self.assertEqual(config.normalize({})["sequence_count"], 0)
+        self.assertEqual(config.normalize({"sequence_count": 12})["sequence_count"], 12)
+        self.assertEqual(config.normalize({"sequence_count": -3})["sequence_count"], 0)
+
 
 class PathTests(unittest.TestCase):
     def test_xdg_config_home_is_respected(self):

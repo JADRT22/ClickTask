@@ -2,6 +2,25 @@
 
 All notable changes to **ClickTask** will be documented in this file.
 
+## [v1.1.2] - 2026-10-21
+
+### Added
+- **Editable sequence points:** *Edit…* (or double-click a row) opens a dialog
+  for X, Y, delay, button, double-click and per-point hold. The table gained a
+  *Hold ms* column.
+- **Click cap for sequences:** *Max clicks* in the Sequence tab maps to the
+  plan's `count`, so a list can stop after N clicks as well as after N loops.
+
+### Fixed
+- **Per-point `hold_ms` was lost on save:** `config._normalize_point` dropped
+  the field, so a sequence reloaded without its holds. Existing configs keep
+  working and now round-trip the value.
+- **Sequence runs ignored the shared Hold field** as the default for points that
+  do not set their own hold.
+- **Dark theme covered checkbox/radio indicators and comboboxes:** on `clam`
+  these are drawn from `indicatorbackground`, not `indicatorcolor`, so the edit
+  dialog showed a light box. The dropdown list is themed too.
+
 ## [v1.1.1] - 2026-10-21
 
 ### Fixed

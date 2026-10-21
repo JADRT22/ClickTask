@@ -116,6 +116,7 @@ class ClickTaskApp:
         self.var_x = tk.StringVar(value=str(position[0]))
         self.var_y = tk.StringVar(value=str(position[1]))
         self.var_loops = tk.StringVar(value=str(self.settings["sequence_loops"]))
+        self.var_seq_count = tk.StringVar(value=str(self.settings["sequence_count"]))
         self.var_hotkey = tk.StringVar(value=self.settings["hotkey"])
         self.var_status = tk.StringVar(value="Idle")
         self.var_counter = tk.StringVar(value="0 clicks")
@@ -178,12 +179,34 @@ class ClickTaskApp:
                         bordercolor=BORDER, insertcolor=FG, padding=3)
         style.configure("TSpinbox", fieldbackground=FIELD_SOFT, background=BG_SOFT,
                         foreground=FG, arrowcolor=FG, bordercolor=BORDER, padding=2)
-        style.configure("TRadiobutton", background=BG, foreground=FG, indicatorcolor=FIELD_SOFT)
+        style.configure("TCombobox", fieldbackground=FIELD_SOFT, background=BG_SOFT,
+                        foreground=FG, arrowcolor=FG, bordercolor=BORDER, padding=2,
+                        selectbackground=ACCENT, selectforeground="#ffffff")
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", FIELD_SOFT), ("disabled", BG_SOFT)],
+                  foreground=[("readonly", FG), ("disabled", MUTED)],
+                  background=[("active", BG_SOFT)])
+        # The dropdown list is a classic Tk listbox, not a ttk style.
+        self.root.option_add("*TCombobox*Listbox.background", FIELD)
+        self.root.option_add("*TCombobox*Listbox.foreground", FG)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
+        # clam draws the indicator from `indicatorbackground`; the other themes
+        # use `indicatorcolor`. Set both, or the box stays white on clam.
+        style.configure("TRadiobutton", background=BG, foreground=FG,
+                        indicatorcolor=FIELD_SOFT, indicatorbackground=FIELD_SOFT,
+                        indicatorforeground=ACCENT)
         style.map("TRadiobutton", background=[("active", BG)],
-                  indicatorcolor=[("selected", ACCENT)])
-        style.configure("TCheckbutton", background=BG, foreground=FG, indicatorcolor=FIELD_SOFT)
+                  indicatorcolor=[("selected", ACCENT)],
+                  indicatorbackground=[("selected", FIELD_SOFT)],
+                  indicatorforeground=[("selected", "#ffffff")])
+        style.configure("TCheckbutton", background=BG, foreground=FG,
+                        indicatorcolor=FIELD_SOFT, indicatorbackground=FIELD_SOFT,
+                        indicatorforeground=ACCENT)
         style.map("TCheckbutton", background=[("active", BG)],
-                  indicatorcolor=[("selected", ACCENT)])
+                  indicatorcolor=[("selected", ACCENT)],
+                  indicatorbackground=[("selected", FIELD_SOFT)],
+                  indicatorforeground=[("selected", "#ffffff")])
         style.configure("TScrollbar", background=BG_SOFT, troughcolor=FIELD,
                         bordercolor=BORDER, arrowcolor=MUTED)
 
@@ -329,30 +352,38 @@ class ClickTaskApp:
 
         ttk.Label(
             tab,
-            text="Pick each point with the mouse; the list repeats in order.",
+            text="Pick each point with the mouse; double-click a row to edit it. "
+                 "The list repeats in order.",
             style="Status.TLabel",
             wraplength=380,
         ).pack(anchor="w")
 
         self.tree = ttk.Treeview(
-            tab, columns=("x", "y", "delay", "button", "double"), show="headings", height=8
+            tab,
+            columns=("x", "y", "delay", "button", "double", "hold"),
+            show="headings",
+            height=8,
         )
         for column, label, width in (
-            ("x", "X", 55),
-            ("y", "Y", 55),
-            ("delay", "Delay (ms)", 85),
-            ("button", "Button", 75),
-            ("double", "Double", 65),
+            ("x", "X", 46),
+            ("y", "Y", 46),
+            ("delay", "Delay ms", 66),
+            ("button", "Button", 62),
+            ("double", "Double", 58),
+            ("hold", "Hold ms", 60),
         ):
             self.tree.heading(column, text=label)
             self.tree.column(column, width=width, anchor="center")
         self.tree.pack(fill="both", expand=True, pady=8)
+        self.tree.bind("<Double-1>", lambda event: self.edit_point())
         self._refresh_points()
 
         controls = ttk.Frame(tab, style="Card.TFrame")
         controls.pack(fill="x")
         ttk.Button(controls, text="Pick point…", command=lambda: self._start_pick("sequence"),
                    style="Ghost.TButton").pack(side="left")
+        ttk.Button(controls, text="Edit…", command=self.edit_point,
+                   style="Ghost.TButton").pack(side="left", padx=(6, 0))
         ttk.Button(controls, text="Remove", command=self.remove_point,
                    style="Ghost.TButton").pack(side="left", padx=6)
         ttk.Button(controls, text="Clear", command=self.clear_points,
@@ -360,8 +391,11 @@ class ClickTaskApp:
 
         loops = ttk.Frame(tab, style="Card.TFrame")
         loops.pack(fill="x", pady=(8, 0))
-        ttk.Label(loops, text="Loops (0 = unlimited):", style="Status.TLabel").pack(side="left")
-        ttk.Entry(loops, textvariable=self.var_loops, width=7).pack(side="left", padx=6)
+        ttk.Label(loops, text="Loops:", style="Status.TLabel").pack(side="left")
+        ttk.Entry(loops, textvariable=self.var_loops, width=6).pack(side="left", padx=6)
+        ttk.Label(loops, text="Max clicks:", style="Status.TLabel").pack(side="left", padx=(10, 4))
+        ttk.Entry(loops, textvariable=self.var_seq_count, width=7).pack(side="left")
+        ttk.Label(loops, text="0 = unlimited", style="Status.TLabel").pack(side="left", padx=8)
 
     @staticmethod
     def _center(window):
@@ -564,6 +598,108 @@ class ClickTaskApp:
         self.points.clear()
         self._refresh_points()
 
+    @staticmethod
+    def _raw(value):
+        return value.get() if hasattr(value, "get") else value
+
+    def _save_point(self, index, x, y, delay, button, double, hold, window=None):
+        """Validate and store an edited point. Returns True when it was saved."""
+        def whole(value, label):
+            try:
+                number = int(str(self._raw(value)).strip())
+            except (TypeError, ValueError):
+                raise ValueError(f"{label} must be a whole number")
+            if number < 0:
+                raise ValueError(f"{label} cannot be negative")
+            return number
+
+        try:
+            point = engine.Point(
+                x=whole(x, "X"),
+                y=whole(y, "Y"),
+                delay_ms=whole(delay, "Delay"),
+                hold_ms=whole(hold, "Hold"),
+                button=str(self._raw(button) or ""),
+                double=bool(self._raw(double)),
+            )
+            if point.button and point.button not in engine.BUTTONS:
+                raise ValueError("button must be left, middle or right")
+            if not 0 <= index < len(self.points):
+                raise ValueError("that point is no longer in the list")
+        except ValueError as exc:
+            messagebox.showerror(APP_TITLE, str(exc))
+            return False
+
+        self.points[index] = point
+        self._refresh_points()
+        children = self.tree.get_children()
+        if index < len(children):
+            self.tree.selection_set(children[index])
+            self.tree.see(children[index])
+        self.var_status.set(f"Point {index + 1} updated")
+        if window is not None:
+            window.destroy()
+        return True
+
+    def edit_point(self):
+        """Edit the selected row (also reachable by double-clicking it)."""
+        selection = self.tree.selection()
+        if not selection:
+            self.var_status.set("Select a point to edit")
+            return
+        index = self.tree.index(selection[0])
+        if not 0 <= index < len(self.points):
+            return
+        point = self.points[index]
+
+        window = tk.Toplevel(self.root)
+        window.title(f"{APP_TITLE} — Edit point {index + 1}")
+        window.transient(self.settings_window or self.root)
+        window.configure(bg=BG)
+        window.resizable(False, False)
+
+        frame = ttk.Frame(window, style="Card.TFrame", padding=12)
+        frame.pack(fill="both", expand=True)
+        var_x = tk.StringVar(value=str(point.x))
+        var_y = tk.StringVar(value=str(point.y))
+        var_delay = tk.StringVar(value=str(point.delay_ms))
+        var_hold = tk.StringVar(value=str(point.hold_ms))
+        var_button = tk.StringVar(value=point.button or self.var_button.get())
+        var_double = tk.BooleanVar(value=point.double)
+
+        for label, variable in (
+            ("X", var_x),
+            ("Y", var_y),
+            ("Delay (ms)", var_delay),
+            ("Hold (ms)", var_hold),
+        ):
+            row = ttk.Frame(frame)
+            row.pack(fill="x", pady=3)
+            ttk.Label(row, text=label, width=11).pack(side="left")
+            ttk.Entry(row, textvariable=variable, width=8).pack(side="left")
+
+        row = ttk.Frame(frame)
+        row.pack(fill="x", pady=3)
+        ttk.Label(row, text="Button", width=11).pack(side="left")
+        ttk.Combobox(row, textvariable=var_button, values=list(engine.BUTTONS),
+                     state="readonly", width=8).pack(side="left")
+        ttk.Checkbutton(frame, text="Double click", variable=var_double).pack(anchor="w", pady=(4, 0))
+
+        actions = ttk.Frame(frame)
+        actions.pack(fill="x", pady=(10, 0))
+
+        def save():
+            self._save_point(index, var_x, var_y, var_delay, var_button,
+                             var_double, var_hold, window=window)
+
+        ttk.Button(actions, text="Save", command=save, style="Ghost.TButton").pack(side="right")
+        ttk.Button(actions, text="Cancel", command=window.destroy,
+                   style="Ghost.TButton").pack(side="right", padx=6)
+        window.bind("<Return>", lambda event: save())
+        window.bind("<Escape>", lambda event: window.destroy())
+        self._center(window)
+        window.focus_force()
+
     def _refresh_points(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -571,7 +707,14 @@ class ClickTaskApp:
             self.tree.insert(
                 "",
                 "end",
-                values=(point.x, point.y, point.delay_ms, point.button or "-", point.double),
+                values=(
+                    point.x,
+                    point.y,
+                    point.delay_ms,
+                    point.button or "-",
+                    point.double,
+                    point.hold_ms,
+                ),
             )
 
     def _active_tab(self):
@@ -586,8 +729,10 @@ class ClickTaskApp:
                 mode=engine.SEQUENCE_MODE,
                 interval_ms=self.interval_ms(),
                 button=self.var_button.get(),
+                hold_ms=self._read_int(self.var_hold),
                 points=list(self.points),
                 loops=self._read_int(self.var_loops),
+                count=self._read_int(self.var_seq_count),
             )
         else:
             plan = engine.ClickPlan(
@@ -780,9 +925,11 @@ class ClickTaskApp:
                     "delay_ms": point.delay_ms,
                     "button": point.button,
                     "double": point.double,
+                    "hold_ms": point.hold_ms,
                 }
                 for point in self.points
             ],
+            "sequence_count": self._read_int(self.var_seq_count),
         }
 
     def on_close(self):

@@ -23,6 +23,7 @@ DEFAULTS = {
     "position": None,
     "hotkey": "F6",
     "sequence_loops": 0,
+    "sequence_count": 0,  # 0 = no click cap in sequence mode
     "points": [],
     "auto_update": True,  # installed builds check GitHub on startup + daily
 }
@@ -86,6 +87,9 @@ def normalize(raw):
     settings["sequence_loops"] = _as_int(
         raw.get("sequence_loops"), DEFAULTS["sequence_loops"], 0
     )
+    settings["sequence_count"] = _as_int(
+        raw.get("sequence_count"), DEFAULTS["sequence_count"], 0
+    )
     settings["points"] = [_normalize_point(p) for p in raw.get("points") or [] if isinstance(p, dict)]
     settings["auto_update"] = bool(raw.get("auto_update", DEFAULTS["auto_update"]))
     return settings
@@ -98,6 +102,7 @@ def _normalize_point(point):
         "delay_ms": _as_int(point.get("delay_ms"), 0, 0, MAX_INTERVAL_MS),
         "button": point.get("button") if point.get("button") in BUTTONS else "",
         "double": bool(point.get("double", False)),
+        "hold_ms": _as_int(point.get("hold_ms"), 0, 0, 60000),
     }
 
 

@@ -64,6 +64,7 @@ class GuiTests(unittest.TestCase):
             "Treeview.Heading": "background",
             "TEntry": "fieldbackground",
             "TSpinbox": "fieldbackground",
+            "TCombobox": "fieldbackground",
             "TRadiobutton": "background",
             "TCheckbutton": "background",
         }
@@ -99,6 +100,48 @@ class GuiTests(unittest.TestCase):
         self.app.notebook.select(1)
         with self.assertRaises(ValueError):
             self.app.build_plan()
+
+    def test_sequence_plan_carries_click_cap_and_hold(self):
+        self.app.points = [engine.Point(x=1, y=2, delay_ms=10)]
+        self.app.notebook.select(1)
+        self.app.var_seq_count.set("5")
+        self.app.var_hold.set("30")
+        plan = self.app.build_plan()
+        self.assertEqual(plan.count, 5)
+        self.assertEqual(plan.hold_ms, 30)
+
+    def test_sequence_table_shows_per_point_hold(self):
+        self.app.points = [engine.Point(x=1, y=2, delay_ms=10, hold_ms=40)]
+        self.app._refresh_points()
+        values = self.app.tree.item(self.app.tree.get_children()[0], "values")
+        self.assertEqual(int(values[5]), 40)
+
+    def test_save_point_updates_delay_button_and_hold(self):
+        self.app.points = [engine.Point(x=1, y=2)]
+        self.app._refresh_points()
+        saved = self.app._save_point(0, "10", "20", "150", "right", True, "45")
+        self.assertTrue(saved)
+        point = self.app.points[0]
+        self.assertEqual((point.x, point.y, point.delay_ms), (10, 20, 150))
+        self.assertEqual(point.button, "right")
+        self.assertTrue(point.double)
+        self.assertEqual(point.hold_ms, 45)
+        self.assertIn("Point 1 updated", self.app.var_status.get())
+
+    def test_save_point_rejects_bad_numbers(self):
+        self.app.points = [engine.Point(x=1, y=2)]
+        with patch.object(gui.messagebox, "showerror") as showerror:
+            saved = self.app._save_point(0, "abc", "2", "0", "left", False, "0")
+        self.assertFalse(saved)
+        self.assertEqual(self.app.points[0].x, 1)
+        showerror.assert_called_once()
+
+    def test_saved_settings_keep_point_hold_and_sequence_cap(self):
+        self.app.points = [engine.Point(x=1, y=2, delay_ms=10, hold_ms=35)]
+        self.app.var_seq_count.set("8")
+        settings = self.app.current_settings()
+        self.assertEqual(settings["points"][0]["hold_ms"], 35)
+        self.assertEqual(settings["sequence_count"], 8)
 
     def _wait_for_pick(self, timeout=5):
         deadline = time.time() + timeout

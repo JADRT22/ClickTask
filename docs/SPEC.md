@@ -19,8 +19,8 @@ replay an ordered list of points in a loop — from the GUI or from a script.
 - Interval engine: h/m/s/ms fields, 1 ms floor, unlimited or N clicks.
 - Click options: left/middle/right, single/double, optional hold per press.
 - Position: current cursor or a fixed point captured from the pointer.
-- Sequence mode: ordered points, per-point delay/button/double, loop count,
-  optional total click cap.
+- Sequence mode: ordered points, editable per-point delay/button/double/hold,
+  loop count and total click cap.
 - Global start/stop hotkey on X11 (default F6, configurable).
 - Headless CLI with `--dry-run` for both modes.
 - Settings persisted at `$XDG_CONFIG_HOME/clicktask/config.json`.
@@ -87,9 +87,9 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 111 tests. The engine, backend,
+`python3 -m unittest discover -s tests -t .` — 118 tests. The engine, backend,
 config, hotkey, CLI, installer and updater tests need no display, network or
-systemd; the 11 GUI tests use a hidden window and are skipped when `DISPLAY` is
+systemd; the 17 GUI tests use a hidden window and are skipped when `DISPLAY` is
 unset. Nothing moves your pointer:
 
 - engine: counts, interval spacing, fixed vs cursor position, sequence order and

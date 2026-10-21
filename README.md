@@ -93,7 +93,7 @@ this spot at this rate", this is the tool.
 
 ## Status
 
-This README describes v1.1.1 (`VERSION` in `src/version.py`).
+This README describes v1.1.2 (`VERSION` in `src/version.py`).
 
 | Area | Support level |
 |---|---|
@@ -249,7 +249,9 @@ it. **Settings…** holds everything else:
 
 - **Clicker tab** — interval (h/m/s/ms), button, single/double, hold, repeat
   mode, and the target (cursor or fixed point).
-- **Sequence tab** — the ordered point list, its loop count, and the picker.
+- **Sequence tab** — the ordered point list, its loop count, an optional click
+  cap, and the picker. Select a row and press **Edit…** (or double-click it) to
+  change its X/Y, delay, button, double-click and per-point hold.
 - **Toggle hotkey** — any X11 key name (`F6`, `F8`, `space`); press **Apply**.
 
 The active tab decides what Start runs: with **Sequence** selected, the list
@@ -352,8 +354,8 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-111 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer and
-updater need no display, network or systemd and never move your pointer; the 11
+118 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer and
+updater need no display, network or systemd and never move your pointer; the 17
 GUI tests use a hidden window and skip when `DISPLAY` is unset (CI). The
 installer/updater tests work inside a temporary `$HOME`. CI runs the suite on
 Python 3.10 and 3.12.
