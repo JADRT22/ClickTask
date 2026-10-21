@@ -145,6 +145,20 @@ class GuiTests(unittest.TestCase):
         showerror.assert_called_once()
         self.assertEqual(self.app.var_status.get(), "Pick failed")
 
+    def test_manual_update_check_reports_up_to_date(self):
+        release = {"version": "1.1.0", "tag": "v1.1.0", "tarball_url": "https://x"}
+        with patch("updater.fetch_latest_release", return_value=release), \
+                patch("updater.installed_version", return_value="1.1.0"), \
+                patch.object(gui.messagebox, "showinfo") as showinfo:
+            self.app.check_updates(manual=True)
+            deadline = time.time() + 5
+            while self.app._update_running and time.time() < deadline:
+                self.root.update()
+                time.sleep(0.02)
+        self.assertFalse(self.app._update_running)
+        self.assertIn("up to date", self.app.var_update.get())
+        showinfo.assert_called_once()
+
     def test_run_updates_counter_and_saves_on_close(self):
         self.app.var_unlimited.set(False)
         self.app.var_count.set("3")

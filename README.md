@@ -93,7 +93,7 @@ this spot at this rate", this is the tool.
 
 ## Status
 
-This README describes v1.1.0 (`VERSION` in `src/version.py`).
+This README describes v1.1.1 (`VERSION` in `src/version.py`).
 
 | Area | Support level |
 |---|---|
@@ -352,7 +352,7 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-110 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer and
+111 tests. Engine, backend (mocked X display), config, hotkey, CLI, installer and
 updater need no display, network or systemd and never move your pointer; the 11
 GUI tests use a hidden window and skip when `DISPLAY` is unset (CI). The
 installer/updater tests work inside a temporary `$HOME`. CI runs the suite on

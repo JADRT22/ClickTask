@@ -2,6 +2,16 @@
 
 All notable changes to **ClickTask** will be documented in this file.
 
+## [v1.1.1] - 2026-10-21
+
+### Fixed
+- **Startup update check could go silent.** The worker thread called
+  `root.after()` directly, which on strict Tk builds (Python 3.14) fails with
+  *main thread is not in main loop*; the exception was swallowed and the
+  Settings label stayed on *checking…* forever. The result is now queued and
+  polled from the main thread, like the point picker.
+- Regression test for the manual/startup update path (GUI suite now 12 tests).
+
 ## [v1.1.0] - 2026-10-21
 
 ### Added

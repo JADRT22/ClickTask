@@ -59,6 +59,8 @@ class ClickTaskApp:
         self._toast_message = ""
         self._last_count = -1
         self._update_running = False
+        self._update_manual = False
+        self._update_queue = queue.Queue()
 
         root.title(APP_TITLE)
         root.configure(bg=BG)
@@ -700,9 +702,22 @@ class ClickTaskApp:
         if self._update_running:
             return
         self._update_running = True
+        self._update_manual = manual
         if manual:
             self.var_update.set(f"v{VERSION} — checking…")
         threading.Thread(target=self._update_worker, args=(manual,), daemon=True).start()
+        # Poll on the main thread: touching Tk from the worker thread raises
+        # "main thread is not in main loop" when Tk is driven by update().
+        self._schedule("update", 120, self._poll_update)
+
+    def _poll_update(self):
+        try:
+            result, error = self._update_queue.get_nowait()
+        except queue.Empty:
+            if self._update_running:
+                self._schedule("update", 120, self._poll_update)
+            return
+        self._update_done(self._update_manual, result, error)
 
     def _update_worker(self, manual):
         try:
@@ -721,10 +736,7 @@ class ClickTaskApp:
                 error = None
         except Exception as exc:  # network, permissions, archive: all reported
             result, error = None, str(exc)
-        try:
-            self.root.after(0, lambda: self._update_done(manual, result, error))
-        except (tk.TclError, RuntimeError):
-            pass
+        self._update_queue.put((result, error))
 
     def _update_done(self, manual, result, error):
         self._update_running = False

@@ -87,7 +87,7 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 110 tests. The engine, backend,
+`python3 -m unittest discover -s tests -t .` — 111 tests. The engine, backend,
 config, hotkey, CLI, installer and updater tests need no display, network or
 systemd; the 11 GUI tests use a hidden window and are skipped when `DISPLAY` is
 unset. Nothing moves your pointer:
