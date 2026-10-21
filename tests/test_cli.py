@@ -230,6 +230,7 @@ class UpdateCliTests(unittest.TestCase):
             code, out, _err = self.capture(["update", "--to", "v9.9.9"])
         self.assertEqual(code, cli.EXIT_OK)
         self.assertTrue(apply.call_args.kwargs["force"])
+        self.assertIn("requested 9.9.9", out)
         self.assertIn("updated 1.1.2 → 9.9.9", out)
 
     def test_network_failure_is_a_backend_error(self):

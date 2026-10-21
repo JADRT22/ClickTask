@@ -93,7 +93,7 @@ this spot at this rate", this is the tool.
 
 ## Status
 
-This README describes v1.1.2 (`VERSION` in `src/version.py`).
+This README describes v1.1.4 (`VERSION` in `src/version.py`).
 
 | Area | Support level |
 |---|---|

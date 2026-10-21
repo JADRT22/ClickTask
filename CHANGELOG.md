@@ -2,6 +2,12 @@
 
 All notable changes to **ClickTask** will be documented in this file.
 
+## [v1.1.4] - 2026-10-21
+
+### Fixed
+- `clicktask update --to TAG` called the requested tag "latest" in its output;
+  it now says "requested". No change to the update itself.
+
 ## [v1.1.3] - 2026-10-21
 
 ### Added

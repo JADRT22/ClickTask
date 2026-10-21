@@ -175,7 +175,8 @@ def run_update(args):
     current = updater.installed_version()
     newer = updater.is_newer(release["version"], current)
     if not args.quiet:
-        print(f"installed {current} · latest {release['version']}")
+        label = "requested" if args.to else "latest"
+        print(f"installed {current} · {label} {release['version']}")
 
     if args.check:
         if newer:
