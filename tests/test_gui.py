@@ -56,9 +56,15 @@ class GuiTests(unittest.TestCase):
         except Exception:
             pass
 
-    def test_two_tabs_and_default_interval(self):
-        self.assertEqual(len(self.app.notebook.tabs()), 2)
+    def test_single_window_layout(self):
+        # OP Auto Clicker style: one window, all controls, Start + Stop.
         self.assertEqual(self.app.interval_ms(), 100)
+        self.assertTrue(hasattr(self.app, "button_start"))
+        self.assertTrue(hasattr(self.app, "button_stop"))
+        self.assertEqual(str(self.app.button_start.cget("state")), "normal")
+        self.assertEqual(str(self.app.button_stop.cget("state")), "disabled")
+        self.assertIn("Start", self.app.var_start_label.get())
+        self.assertIn("Stop", self.app.var_stop_label.get())
 
     def test_dark_theme_covers_panels_not_only_buttons(self):
         style = gui.ttk.Style(self.root)
@@ -66,8 +72,6 @@ class GuiTests(unittest.TestCase):
             "TFrame": "background",
             "TLabel": "background",
             "TLabelframe": "background",
-            "TNotebook": "background",
-            "TNotebook.Tab": "background",
             "Treeview": "fieldbackground",
             "Treeview.Heading": "background",
             "TEntry": "fieldbackground",
@@ -100,18 +104,18 @@ class GuiTests(unittest.TestCase):
 
     def test_sequence_plan_uses_points(self):
         self.app.points = [engine.Point(x=1, y=2, delay_ms=10)]
-        self.app.notebook.select(1)
+        self.app.var_mode.set("sequence")
         plan = self.app.build_plan()
         self.assertEqual(plan.mode, engine.SEQUENCE_MODE)
 
     def test_empty_sequence_is_rejected(self):
-        self.app.notebook.select(1)
+        self.app.var_mode.set("sequence")
         with self.assertRaises(ValueError):
             self.app.build_plan()
 
     def test_sequence_plan_carries_click_cap_and_hold(self):
         self.app.points = [engine.Point(x=1, y=2, delay_ms=10)]
-        self.app.notebook.select(1)
+        self.app.var_mode.set("sequence")
         self.app.var_seq_count.set("5")
         self.app.var_hold.set("30")
         plan = self.app.build_plan()

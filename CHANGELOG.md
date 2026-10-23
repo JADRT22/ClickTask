@@ -2,6 +2,24 @@
 
 All notable changes to **ClickTask** will be documented in this file.
 
+## [v1.3.0] - 2026-10-24
+
+### Changed
+- **The whole UI is visible from the start** (OP Auto Clicker layout): the
+  Settings dialog is gone and the main window now holds every control —
+  *Click interval* (h/m/s/ms plus a **Jitter ± ms** random offset), *Click
+  options* (button, single/double, hold), *Click repeat* (until stopped or N
+  times), *Cursor position* (current location or fixed point with
+  *Pick on screen*) and the *Sequence* panel with its full button row
+  (**Pick… Edit… Remove Clear ↑ ↓ Duplicate Import… Export…**) and a
+  *Show list* toggle. **Click plan: Clicker / Sequence** radios at the top
+  decide what Start runs, as the tabs used to.
+- **Start / Stop replaced the big toggle button**: a highlighted blue
+  **Start (F6)** next to a greyed **Stop (F6)**, with the status line (where
+  the run clicks, live counts) on its own row underneath, and the hotkey /
+  auto-update / *Check updates* controls in a footer row.
+- The suite is now 169 tests (166 headless, 3 gated input tests).
+
 ## [v1.2.1] - 2026-10-24
 
 ### Fixed

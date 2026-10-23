@@ -45,7 +45,7 @@ replay an ordered list of points in a loop — from the GUI or from a script.
 | `src/hotkey.py` | `HotkeyListener`: `XGrabKey` on the root window with CapsLock/NumLock variants, own `Display` connection, auto-repeat filtered. |
 | `src/config.py` | `DEFAULTS`, `normalize()` validation, atomic `load()`/`save()`. |
 | `src/cli.py` | Argument parsing, interval/point/sequence-file parsing, plan building, exit codes. |
-| `src/gui.py` | tkinter minimal window (big toggle button, counter, fade-in/pulse/pop animations) plus a Settings dialog holding the Clicker/Sequence tabs, hotkey field, click-to-pick flow, update toggle, plan building and config save on close. |
+| `src/gui.py` | tkinter main window in the OP Auto Clicker layout: click plan, interval + jitter, click options, repeat, cursor position, sequence panel, Start/Stop, footer controls, pick flow, update check and animations. No settings dialog: everything is on one window. |
 | `src/installer.py` | Launcher, menu/desktop entries, icon, systemd update timer, uninstall; all paths under `$HOME`. |
 | `src/updater.py` | GitHub release lookup, tarball download, `SHA256SUMS`/signature verification, archive validation, atomic swap of managed folders, dependency refresh. |
 | `src/release_key.py` | Public key that pins the signing key for releases; empty means unsigned releases are accepted with a checksum only. |
@@ -91,7 +91,7 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 165 tests. The engine, backend,
+`python3 -m unittest discover -s tests -t .` — 169 tests. The engine, backend,
 config, hotkey, CLI, installer, updater, single-instance, doctor and XTEST
 integration tests add 3 gated cases (display guard + real move/click) that only
 run with `CLICKTASK_REQUIRE_DISPLAY=1` / `CLICKTASK_X11_TEST=1`; the 35 GUI tests
@@ -129,7 +129,7 @@ by the env-gated XTEST test inside Xvfb (see README).
 - **Hotkey grab conflicts** — if another app owns F6, the grab fails; the GUI
   reports it and the CLI still works.
 - **Updates are opt-out, not mandatory** — installed builds check GitHub on
-  startup and daily; `--no-autoupdate`, the Settings toggle and
+  startup and daily; `--no-autoupdate`, the footer **Auto-update** checkbox and
   `CLICKTASK_NO_UPDATE=1` can disable them. Tarballs are validated (layout,
   no links, no path escapes) before `os.replace` swaps the tree; failures roll
   back to the previous files, and `SHA256SUMS` mismatch aborts before extraction.

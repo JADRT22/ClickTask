@@ -26,8 +26,8 @@ git clone https://github.com/JADRT22/ClickTask.git && cd ClickTask && ./install.
 
 The installer puts **ClickTask** in the application menu (so it shows up in the
 search bar), adds a shortcut to your desktop and creates the `clicktask`
-command. Open it from any of them and press **F6** to start and stop; everything
-else lives behind **Settings…**.
+command. Open it from any of them and press **F6** to start and stop; the whole
+window shows every option in plain sight, like OP Auto Clicker.
 
 ## Table of contents
 
@@ -75,8 +75,10 @@ Full comparison: [docs/COMPARISON.md](docs/COMPARISON.md).
 - **Headless CLI** — the same engine from a script, with `--dry-run` to preview
   the plan without moving the pointer.
 - **Persistent settings** — everything is remembered between runs.
-- **Small, quiet window** — one big button on a dark card, with a fade-in, a
-  slow pulse while clicking and a counter that pops on each click.
+- **Everything on one window** (OP Auto Clicker layout) — click plan, interval
+  with jitter, click options, repeat mode, cursor position and the sequence
+  panel side by side, over a dark card with a fade-in, a pulse while running
+  and a counter that pops on each click.
 - **Installs like an app** — one user-level installer adds a menu entry (found
   by the desktop search bar), a desktop shortcut, the icon and a `clicktask`
   command; no sudo and no system directories.
@@ -90,7 +92,7 @@ Full comparison: [docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Status
 
-This README describes v1.2.1 (`VERSION` in `src/version.py`).
+This README describes v1.3.0 (`VERSION` in `src/version.py`).
 
 | Area | Support level |
 |---|---|
@@ -238,8 +240,8 @@ reinstalled inside the venv. Old modules the release removed disappear with the
 swap. The replaced tree is kept in `.previous` until the next update, which is
 what `--rollback` restores.
 
-Turn it off in **Settings… → Auto-update on new releases** (startup check) or
-skip the timer with `./install.sh --no-autoupdate`. `CLICKTASK_NO_UPDATE=1`
+Turn it off with the **Auto-update** checkbox in the window footer, or skip
+the timer with `./install.sh --no-autoupdate`. `CLICKTASK_NO_UPDATE=1`
 disables the startup check for a single run. Auto-update never runs from a git
 checkout: only trees created by the installer are touched, so development is
 safe.
@@ -248,29 +250,34 @@ safe.
 
 ### GUI
 
-One big button and a counter. **Press F6 to click** starts the run; the button
-turns red and pulses while it clicks, and the same key (or the button) stops
-it. The status line always says where the run clicks — **the cursor** (free
-mouse, GS "current location" style) or **a fixed point** — so a saved position
-cannot surprise you. **Settings…** holds everything else:
+All controls are on the main window, in OP Auto Clicker order:
 
-- **Clicker tab** — interval (h/m/s/ms), button, single/double, hold, repeat
-  mode, and the target (cursor or fixed point).
-- **Sequence tab** — the ordered point list, its loop count, an optional click
-  cap, and the picker. Select a row and press **Edit…** (or double-click it) to
-  change its X/Y, delay, button, double-click and per-point hold; **↑ Up** and
-  **↓ Down** reorder, **Duplicate** copies the row below it, and **Import…** /
-  **Export…** read and write the same JSON format as the CLI.
-- **Toggle hotkey** — any X11 key name (`F6`, `F8`, `space`); press **Apply**.
-
-The active tab decides what Start runs: with **Sequence** selected, the list
-plays instead of the interval clicker.
+- **Click plan: Clicker / Sequence** — what Start (F6) runs.
+- **Click interval** — h/m/s/ms fields (1 ms floor) plus **Jitter ± ms**, a
+  uniform random offset applied to each interval, so the rhythm is not machine-
+  gun-stable.
+- **Click options** — button (left/middle/right), single/double and the hold
+  per press.
+- **Click repeat** — repeat until stopped, or exactly N times.
+- **Cursor position** — click wherever the cursor is, or pin a **Fixed point**
+  with *Pick on screen*.
+- **Sequence** — the ordered point list (hidden behind *Show list* until you
+  want it), its loop count, an optional click cap, and the picker. Select a row
+  and press **Edit…** (or double-click it) to change its X/Y, delay, button,
+  double-click and per-point hold; **↑ Up** and **↓ Down** reorder,
+  **Duplicate** copies the row below it, and **Import…** / **Export…** read and
+  write the same JSON format as the CLI.
+- **Start (F6) / Stop (F6)** — the highlighted blue button starts; it stops on
+  F6, on the button, or when the cap is reached, and the status line always
+  says where the run clicks and how many clicks it made.
+- **Footer** — the toggle-hotkey field with **Apply**, the auto-update
+  checkbox, *Check updates* and the version label.
 
 ### Picking a point
 
 Picking does not read the cursor position on the spot. Press **Pick on screen**
-(Settings → Position) or **Pick point…** (Sequence tab); a toast asks for a
-click, and *that click* becomes the coordinate:
+(Cursor position) or **Pick…** (Sequence); a toast asks for a
+ click, and *that click* becomes the coordinate:
 
 - the click is grabbed, so nothing behind the cursor is activated;
 - **Esc** cancels;
@@ -279,9 +286,10 @@ click, and *that click* becomes the coordinate:
 
 ### Hotkey
 
-`F6` toggles clicking from any window. Change the name in Settings and press
-**Apply**. Keys already owned by another application cannot be grabbed; the
-status line reports it and the CLI remains usable.
+`F6` toggles clicking from any window. Change the name in the **Toggle hotkey**
+field of the footer and press **Apply**. Keys already owned by another
+application cannot be grabbed; the status line reports it and the CLI remains
+usable.
 
 ### CLI
 
@@ -331,7 +339,7 @@ default), `double`, `hold_ms`.
   once a day, then download the release tarball and its `SHA256SUMS` from
   GitHub; a signed release is verified against the pinned public key, the
   archive layout is verified before any file is replaced and symlinks are
-  rejected. Turn it off in Settings or at install time. Locally, the only files written are
+  rejected. Turn it off with the **Auto-update** checkbox in the footer or at install time. Locally, the only files written are
   `$XDG_CONFIG_HOME/clicktask/config.json` and the install folder.
 - **Grabs are short and visible.** The hotkey grabs one key on the root
   window; the picker grabs the pointer only while a pick is open (Esc cancels,
@@ -350,7 +358,7 @@ default), `double`, `hold_ms`.
 | `src/hotkey.py` | `XGrabKey` listener with lock-modifier variants |
 | `src/config.py` | Defaults, validation, atomic load/save |
 | `src/cli.py` | Argument parsing, interval/point/sequence parsing, exit codes |
-| `src/gui.py` | tkinter window, settings dialog, animations, pick flow, update check |
+| `src/gui.py` | tkinter main window (OP-style panels), animations, pick flow, update check |
 | `src/installer.py` | Launcher, menu/desktop entries, icon, systemd timer, uninstall |
 | `src/updater.py` | GitHub release check, tarball download, safe atomic swap |
 | `src/version.py` | `VERSION` (single source of truth) and the repository slug |
@@ -366,7 +374,7 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-165 tests: 162 run headless and never move the pointer, plus 3 gated ones (a
+169 tests: 166 run headless and never move the pointer, plus 3 gated ones (a
 display guard and two real XTEST checks). The 35 GUI tests use a hidden window
 and skip when `DISPLAY` is unset; the installer/updater tests work inside a
 temporary `$HOME`. CI runs the headless suite on Python 3.10, 3.12, 3.13 and
@@ -410,7 +418,7 @@ required is broken.
 | --- | --- |
 | `ClickTask: no usable display` | Run it inside your X session (`echo $DISPLAY`), not from a TTY or a root shell without `XAUTHORITY` |
 | `clicktask: cannot open the X display` | Same as above; with `sudo`, `XAUTHORITY` points at root's home |
-| Button works, **F6** does nothing | Another app owns F6; pick `F8`/`space` in Settings → Apply |
+| Button works, **F6** does nothing | Another app owns F6; set `F8` or `space` in the footer's hotkey field and press **Apply** |
 | `Hotkey unavailable: …` | The grab failed (key taken, or no X connection); the GUI still works with the button |
 | `could not grab the pointer` while picking | Another tool holds the pointer grab; close it and retry |
 | Clicks reach nothing on Wayland | Expected: `XTEST` cannot reach Wayland clients |

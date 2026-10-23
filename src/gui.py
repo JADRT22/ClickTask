@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 ClickTask - gui.py
-Description: Compact tkinter front-end in the spirit of GS Auto Clicker: one
-             big toggle button on a small dark card, options behind a Settings
-             dialog, subtle animations (fade-in, pulsing while running, counter
-             pop) and click-anywhere point picking. Input injection always goes
-             through the engine; the GUI only builds plans and shows state.
+Description: Single-window tkinter front-end in the OP Auto Clicker style:
+             every option is visible in grouped sections (interval, click
+             options, repeat, cursor position), with Start/Stop buttons, an
+             expandable sequence panel and a click-anywhere point picker.
+             Subtle animations (fade-in, pulsing Stop while running, counter
+             pop) and click-anywhere point picking are kept. Input injection
+             always goes through the engine; the GUI only builds plans and
+             shows state.
 Author: JADRT22 (https://github.com/JADRT22)
 License: MIT
 """
@@ -27,7 +30,8 @@ from version import VERSION
 
 APP_TITLE = "ClickTask"
 
-# Palette: a quiet dark card with one accent that turns red while clicking.
+# Palette: a quiet dark card with one accent; the Stop button turns red while
+# clicking, like the old toggle button.
 BG = "#1d2129"
 BG_SOFT = "#252b35"
 FG = "#e7eaf0"
@@ -43,7 +47,7 @@ PICK_TIMEOUT = 60
 
 
 class ClickTaskApp:
-    """Main window (minimal) + settings dialog (all options)."""
+    """Single window holding every option plus the running controls."""
 
     def __init__(self, root, settings=None):
         self.root = root
@@ -51,7 +55,6 @@ class ClickTaskApp:
         self.points = [engine.Point(**point) for point in self.settings["points"]]
         self.hotkey_listener = None
         self.engine = None
-        self.settings_window = None
         self._after_ids = {}
         self._pick_active = False
         self._pick_target = "position"
@@ -73,7 +76,6 @@ class ClickTaskApp:
         self._build_vars()
         self._setup_style()
         self._build_main()
-        self._build_settings_dialog()
         self._start_hotkey()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         # Tk keeps scheduling animations and polls; cancel them on any destroy
@@ -108,6 +110,7 @@ class ClickTaskApp:
         self.var_minutes = tk.StringVar(value=str(interval % 3600000 // 60000))
         self.var_seconds = tk.StringVar(value=str(interval % 60000 // 1000))
         self.var_millis = tk.StringVar(value=str(interval % 1000))
+        self.var_offset = tk.StringVar(value=str(self.settings.get("random_offset_ms", 0)))
 
         self.var_button = tk.StringVar(value=self.settings["button"])
         self.var_double = tk.BooleanVar(value=bool(self.settings["double"]))
@@ -123,7 +126,10 @@ class ClickTaskApp:
         self.var_hotkey = tk.StringVar(value=self.settings["hotkey"])
         self.var_status = tk.StringVar(value="Idle")
         self.var_counter = tk.StringVar(value="0 clicks")
-        self.var_toggle = tk.StringVar(value=self._toggle_label(False))
+        self.var_start_label = tk.StringVar()
+        self.var_stop_label = tk.StringVar()
+        self.var_mode = tk.StringVar(value="clicker")
+        self.var_seq_list = tk.BooleanVar(value=False)
         self.var_auto_update = tk.BooleanVar(value=bool(self.settings["auto_update"]))
         self.var_update = tk.StringVar(value=f"v{VERSION}")
 
@@ -139,7 +145,7 @@ class ClickTaskApp:
             pass
 
         # Paint every widget family: setting only the frames and buttons leaves
-        # notebook pages, tree views and text fields with the light defaults.
+        # tree views and text fields with the light defaults.
         style.configure(
             ".",
             background=BG,
@@ -161,13 +167,6 @@ class ClickTaskApp:
         style.configure("TLabelframe", background=BG, bordercolor=BORDER, relief="solid")
         style.configure("TLabelframe.Label", background=BG, foreground=MUTED,
                         font=self._font(9, "bold"))
-
-        style.configure("TNotebook", background=BG, borderwidth=0, bordercolor=BORDER)
-        style.configure("TNotebook.Tab", background=BG_SOFT, foreground=MUTED,
-                        padding=(12, 5), borderwidth=0)
-        style.map("TNotebook.Tab",
-                  background=[("selected", BG), ("active", FIELD_SOFT)],
-                  foreground=[("selected", FG), ("active", FG)])
 
         style.configure("Treeview", background=FIELD, fieldbackground=FIELD,
                         foreground=FG, borderwidth=0, rowheight=22)
@@ -216,89 +215,74 @@ class ClickTaskApp:
         style.configure("Card.TFrame", background=BG)
         style.configure("Counter.TLabel", background=BG, foreground=FG, font=self._font(18, "bold"))
         style.configure("Status.TLabel", background=BG, foreground=MUTED, font=self._font(9))
+        # Start keeps the accent look; Stop is neutral grey until it is needed.
         style.configure("Accent.TButton", background=ACCENT, foreground="#ffffff",
-                        font=self._font(13, "bold"), padding=(10, 20), borderwidth=0,
+                        font=self._font(12, "bold"), padding=(10, 16), borderwidth=0,
+                        focusthickness=0)
+        style.configure("Stop.TButton", background=BG_SOFT, foreground=FG,
+                        font=self._font(12, "bold"), padding=(10, 16), borderwidth=0,
                         focusthickness=0)
         style.configure("Running.TButton", background=RUNNING, foreground="#ffffff",
-                        font=self._font(13, "bold"), padding=(10, 20), borderwidth=0,
+                        font=self._font(12, "bold"), padding=(10, 16), borderwidth=0,
                         focusthickness=0)
         style.configure("RunningAlt.TButton", background="#f0674f", foreground="#ffffff",
-                        font=self._font(13, "bold"), padding=(10, 20), borderwidth=0,
+                        font=self._font(12, "bold"), padding=(10, 16), borderwidth=0,
                         focusthickness=0)
         style.configure("Ghost.TButton", background=BG_SOFT, foreground=FG,
-                        font=self._font(10), padding=(8, 8), borderwidth=0)
+                        font=self._font(10), padding=(6, 6), borderwidth=0)
         style.map("Ghost.TButton", background=[("active", "#313846")])
-        style.map("Accent.TButton", background=[("active", "#5c9dff"), ("pressed", ACCENT)])
+        style.map("Accent.TButton",
+                  background=[("active", "#5c9dff"), ("pressed", ACCENT),
+                              ("disabled", ACCENT_DARK)],
+                  foreground=[("disabled", MUTED)])
+        style.map("Stop.TButton",
+                  background=[("active", "#313846"), ("disabled", BG_SOFT)],
+                  foreground=[("disabled", MUTED)])
         style.map("Running.TButton", background=[("active", "#f0674f"), ("pressed", RUNNING)])
         style.map("RunningAlt.TButton", background=[("active", RUNNING)])
 
     def _build_main(self):
-        frame = ttk.Frame(self.root, style="Card.TFrame", padding=16)
+        frame = ttk.Frame(self.root, style="Card.TFrame", padding=12)
         frame.pack(fill="both", expand=True)
 
-        self.button_toggle = ttk.Button(
-            frame,
-            textvariable=self.var_toggle,
-            command=self.toggle,
+        # Plan selector: which section Start runs.
+        plan_row = ttk.Frame(frame, style="Card.TFrame")
+        plan_row.pack(fill="x")
+        ttk.Label(plan_row, text="Click plan:", style="Status.TLabel").pack(side="left")
+        ttk.Radiobutton(plan_row, text="Clicker", value="clicker",
+                        variable=self.var_mode).pack(side="left", padx=(6, 0))
+        ttk.Radiobutton(plan_row, text="Sequence", value="sequence",
+                        variable=self.var_mode).pack(side="left", padx=(8, 0))
+        self.counter_label = ttk.Label(plan_row, textvariable=self.var_counter,
+                                       style="Counter.TLabel", anchor="e")
+        self.counter_label.pack(side="right")
+
+        self._build_clicker_group(frame)
+        self._build_sequence_group(frame)
+
+        exec_row = ttk.Frame(frame, style="Card.TFrame")
+        exec_row.pack(fill="x", pady=(10, 0))
+        self.button_start = ttk.Button(
+            exec_row, textvariable=self.var_start_label, command=self.start,
             style="Accent.TButton",
-            width=24,
         )
-        self.button_toggle.pack(fill="x")
+        self.button_start.pack(side="left", fill="x", expand=True)
+        self.button_stop = ttk.Button(
+            exec_row, textvariable=self.var_stop_label, command=self.stop,
+            style="Stop.TButton", state="disabled",
+        )
+        self.button_stop.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        self._set_exec_labels(False)
 
-        ttk.Label(frame, textvariable=self.var_counter, style="Counter.TLabel",
-                  anchor="center").pack(fill="x", pady=(12, 2))
         ttk.Label(frame, textvariable=self.var_status, style="Status.TLabel",
-                  anchor="center").pack(fill="x")
+                  wraplength=640, justify="center").pack(fill="x", pady=(8, 0))
 
-        ttk.Button(frame, text="Settings…", command=self.open_settings,
-                   style="Ghost.TButton").pack(fill="x", pady=(12, 0))
-
+        self._build_footer(frame)
         self._center(self.root)
 
-    def _build_settings_dialog(self):
-        window = tk.Toplevel(self.root)
-        window.withdraw()  # only shown on demand
-        window.title(f"{APP_TITLE} — Settings")
-        window.transient(self.root)
-        window.configure(bg=BG)
-        window.protocol("WM_DELETE_WINDOW", window.withdraw)
-        self.settings_window = window
-
-        outer = ttk.Frame(window, style="Card.TFrame", padding=10)
-        outer.pack(fill="both", expand=True)
-
-        self.notebook = ttk.Notebook(outer)
-        self.notebook.pack(fill="both", expand=True)
-        self._build_clicker_tab(self.notebook)
-        self._build_sequence_tab(self.notebook)
-
-        updates_row = ttk.Frame(outer, style="Card.TFrame")
-        updates_row.pack(fill="x", pady=(8, 0))
-        ttk.Checkbutton(updates_row, text="Auto-update on new releases",
-                        variable=self.var_auto_update).pack(side="left")
-        ttk.Button(updates_row, text="Check now", command=lambda: self.check_updates(True),
-                   style="Ghost.TButton").pack(side="right")
-        ttk.Label(outer, textvariable=self.var_update, style="Status.TLabel",
-                  wraplength=400).pack(fill="x", pady=(2, 0))
-
-        hotkey_row = ttk.Frame(outer, style="Card.TFrame")
-        hotkey_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(hotkey_row, text="Toggle hotkey:", style="Status.TLabel").pack(side="left")
-        ttk.Entry(hotkey_row, textvariable=self.var_hotkey, width=8).pack(side="left", padx=6)
-        ttk.Button(hotkey_row, text="Apply", command=self._start_hotkey,
-                   style="Ghost.TButton").pack(side="left")
-        ttk.Button(hotkey_row, text="Close", command=window.withdraw,
-                   style="Ghost.TButton").pack(side="right")
-
-        # Hide last: `transient()` on a withdrawn window makes Tk map it again.
-        window.withdraw()
-
-    def _build_clicker_tab(self, notebook):
-        tab = ttk.Frame(notebook, style="Card.TFrame", padding=10)
-        notebook.add(tab, text="Clicker")
-
-        interval = ttk.LabelFrame(tab, text="Click interval", padding=8)
-        interval.pack(fill="x")
+    def _build_clicker_group(self, frame):
+        interval = ttk.LabelFrame(frame, text="Click interval", padding=8)
+        interval.pack(fill="x", pady=(8, 0))
         for label, var, limit in (
             ("h", self.var_hours, 23),
             ("m", self.var_minutes, 59),
@@ -306,72 +290,95 @@ class ClickTaskApp:
             ("ms", self.var_millis, 999),
         ):
             column = ttk.Frame(interval)
-            column.pack(side="left", padx=(0, 10))
+            column.pack(side="left", padx=(0, 8))
             ttk.Spinbox(column, from_=0, to=limit, width=5, textvariable=var).pack(side="left")
             ttk.Label(column, text=label).pack(side="left", padx=(2, 0))
+        jitter = ttk.Frame(interval)
+        jitter.pack(side="left", padx=(8, 0))
+        ttk.Label(jitter, text="Jitter ±", style="Status.TLabel").pack(side="left")
+        ttk.Spinbox(jitter, from_=0, to=10000, width=5,
+                    textvariable=self.var_offset).pack(side="left", padx=(2, 2))
+        ttk.Label(jitter, text="ms", style="Status.TLabel").pack(side="left")
         ttk.Label(
             interval,
             text="Below ~5 ms the X server and the target app bound the real rate.",
             style="Status.TLabel",
-            wraplength=380,
-        ).pack(anchor="w", pady=(6, 0))
+        ).pack(anchor="w", pady=(4, 0))
 
-        click = ttk.LabelFrame(tab, text="Click", padding=8)
+        click = ttk.LabelFrame(frame, text="Click options", padding=8)
         click.pack(fill="x", pady=(8, 0))
-        buttons = ttk.Frame(click)
-        buttons.pack(anchor="w")
-        for value, label in (("left", "Left"), ("middle", "Middle"), ("right", "Right")):
-            ttk.Radiobutton(buttons, text=label, value=value,
-                            variable=self.var_button).pack(side="left", padx=(0, 10))
-        kind = ttk.Frame(click)
-        kind.pack(anchor="w", pady=(6, 0))
-        ttk.Checkbutton(kind, text="Double click", variable=self.var_double).pack(side="left")
-        ttk.Label(kind, text="Hold (ms):").pack(side="left", padx=(12, 4))
-        ttk.Entry(kind, textvariable=self.var_hold, width=7).pack(side="left")
-
-        repeat = ttk.LabelFrame(tab, text="Repeat", padding=8)
-        repeat.pack(fill="x", pady=(8, 0))
-        ttk.Radiobutton(repeat, text="Until stopped", value=True,
-                        variable=self.var_unlimited).pack(anchor="w")
-        row = ttk.Frame(repeat)
+        row = ttk.Frame(click)
         row.pack(anchor="w")
-        ttk.Radiobutton(row, text="Clicks:", value=False,
-                        variable=self.var_unlimited).pack(side="left")
-        ttk.Entry(row, textvariable=self.var_count, width=8).pack(side="left", padx=4)
-        ttk.Label(row, text="times").pack(side="left")
+        ttk.Label(row, text="Mouse button:", style="Status.TLabel").pack(side="left")
+        for value, label in (("left", "Left"), ("middle", "Middle"), ("right", "Right")):
+            ttk.Radiobutton(row, text=label, value=value,
+                            variable=self.var_button).pack(side="left", padx=(4, 0))
+        row2 = ttk.Frame(click)
+        row2.pack(anchor="w", pady=(6, 0))
+        ttk.Label(row2, text="Click type:", style="Status.TLabel").pack(side="left")
+        ttk.Radiobutton(row2, text="Single", value=False,
+                        variable=self.var_double).pack(side="left", padx=(4, 0))
+        ttk.Radiobutton(row2, text="Double", value=True,
+                        variable=self.var_double).pack(side="left", padx=(8, 0))
+        ttk.Label(row2, text="Hold (ms):", style="Status.TLabel").pack(side="left", padx=(12, 4))
+        ttk.Entry(row2, textvariable=self.var_hold, width=7).pack(side="left")
 
-        position = ttk.LabelFrame(tab, text="Position", padding=8)
+        repeat = ttk.LabelFrame(frame, text="Click repeat", padding=8)
+        repeat.pack(fill="x", pady=(8, 0))
+        row3 = ttk.Frame(repeat)
+        row3.pack(anchor="w")
+        ttk.Radiobutton(row3, text="Repeat until stopped", value=True,
+                        variable=self.var_unlimited).pack(side="left")
+        ttk.Radiobutton(row3, text="Repeat", value=False,
+                        variable=self.var_unlimited).pack(side="left", padx=(14, 0))
+        ttk.Entry(row3, textvariable=self.var_count, width=7).pack(side="left", padx=4)
+        ttk.Label(row3, text="times", style="Status.TLabel").pack(side="left")
+
+        position = ttk.LabelFrame(frame, text="Cursor position", padding=8)
         position.pack(fill="x", pady=(8, 0))
-        ttk.Radiobutton(position, text="Current cursor", value=False,
-                        variable=self.var_fixed).pack(anchor="w")
-        fixed = ttk.Frame(position)
-        fixed.pack(anchor="w")
-        ttk.Radiobutton(fixed, text="Fixed point", value=True,
+        row4 = ttk.Frame(position)
+        row4.pack(anchor="w")
+        ttk.Radiobutton(row4, text="Current location", value=False,
                         variable=self.var_fixed).pack(side="left")
-        ttk.Label(fixed, text="X").pack(side="left", padx=(6, 2))
-        ttk.Entry(fixed, textvariable=self.var_x, width=6).pack(side="left")
-        ttk.Label(fixed, text="Y").pack(side="left", padx=(6, 2))
-        ttk.Entry(fixed, textvariable=self.var_y, width=6).pack(side="left")
-        ttk.Button(fixed, text="Pick on screen", command=lambda: self._start_pick("position"),
+        ttk.Radiobutton(row4, text="Fixed point", value=True,
+                        variable=self.var_fixed).pack(side="left", padx=(14, 0))
+        ttk.Label(row4, text="X", style="Status.TLabel").pack(side="left", padx=(10, 2))
+        ttk.Entry(row4, textvariable=self.var_x, width=6).pack(side="left")
+        ttk.Label(row4, text="Y", style="Status.TLabel").pack(side="left", padx=(6, 2))
+        ttk.Entry(row4, textvariable=self.var_y, width=6).pack(side="left")
+        ttk.Button(row4, text="Pick on screen", command=lambda: self._start_pick("position"),
                    style="Ghost.TButton").pack(side="left", padx=8)
 
-    def _build_sequence_tab(self, notebook):
-        tab = ttk.Frame(notebook, style="Card.TFrame", padding=10)
-        notebook.add(tab, text="Sequence")
+    def _build_sequence_group(self, frame):
+        sequence = ttk.LabelFrame(frame, text="Sequence", padding=8)
+        sequence.pack(fill="x", pady=(8, 0))
 
-        ttk.Label(
-            tab,
-            text="Pick each point with the mouse; double-click a row to edit it. "
-                 "The list repeats in order.",
-            style="Status.TLabel",
-            wraplength=380,
-        ).pack(anchor="w")
+        header = ttk.Frame(sequence)
+        header.pack(fill="x")
+        for text, command in (
+            ("Pick…", lambda: self._start_pick("sequence")),
+            ("Edit…", self.edit_point),
+            ("Remove", self.remove_point),
+            ("Clear", self.clear_points),
+            ("↑", lambda: self.move_point(-1)),
+            ("↓", lambda: self.move_point(1)),
+            ("Duplicate", self.duplicate_point),
+            ("Import…", self.import_points),
+            ("Export…", self.export_points),
+        ):
+            ttk.Button(header, text=text, command=command,
+                       style="Ghost.TButton").pack(side="left", padx=(0, 5))
+        ttk.Checkbutton(header, text="Show list", variable=self.var_seq_list,
+                        command=self.toggle_sequence_list).pack(side="right")
 
+        self.sequence_body = ttk.Frame(sequence)
+        if self.var_seq_list.get():
+            self.sequence_body.pack(fill="both", pady=(6, 0))
         self.tree = ttk.Treeview(
-            tab,
+            self.sequence_body,
             columns=("x", "y", "delay", "button", "double", "hold"),
             show="headings",
-            height=8,
+            height=6,
         )
         for column, label, width in (
             ("x", "X", 46),
@@ -383,41 +390,37 @@ class ClickTaskApp:
         ):
             self.tree.heading(column, text=label)
             self.tree.column(column, width=width, anchor="center")
-        self.tree.pack(fill="both", expand=True, pady=8)
+        self.tree.pack(fill="both", expand=True)
         self.tree.bind("<Double-1>", lambda event: self.edit_point())
         self._refresh_points()
 
-        controls = ttk.Frame(tab, style="Card.TFrame")
-        controls.pack(fill="x")
-        ttk.Button(controls, text="Pick point…", command=lambda: self._start_pick("sequence"),
-                   style="Ghost.TButton").pack(side="left")
-        ttk.Button(controls, text="Edit…", command=self.edit_point,
-                   style="Ghost.TButton").pack(side="left", padx=(6, 0))
-        ttk.Button(controls, text="Remove", command=self.remove_point,
-                   style="Ghost.TButton").pack(side="left", padx=6)
-        ttk.Button(controls, text="Clear", command=self.clear_points,
-                   style="Ghost.TButton").pack(side="left")
-
-        manage = ttk.Frame(tab, style="Card.TFrame")
-        manage.pack(fill="x", pady=(6, 0))
-        ttk.Button(manage, text="↑ Up", command=lambda: self.move_point(-1),
-                   style="Ghost.TButton").pack(side="left")
-        ttk.Button(manage, text="↓ Down", command=lambda: self.move_point(1),
-                   style="Ghost.TButton").pack(side="left", padx=6)
-        ttk.Button(manage, text="Duplicate", command=self.duplicate_point,
-                   style="Ghost.TButton").pack(side="left")
-        ttk.Button(manage, text="Import…", command=self.import_points,
-                   style="Ghost.TButton").pack(side="right")
-        ttk.Button(manage, text="Export…", command=self.export_points,
-                   style="Ghost.TButton").pack(side="right", padx=6)
-
-        loops = ttk.Frame(tab, style="Card.TFrame")
-        loops.pack(fill="x", pady=(8, 0))
+        loops = ttk.Frame(self.sequence_body)
+        loops.pack(fill="x", pady=(6, 0))
         ttk.Label(loops, text="Loops:", style="Status.TLabel").pack(side="left")
         ttk.Entry(loops, textvariable=self.var_loops, width=6).pack(side="left", padx=6)
         ttk.Label(loops, text="Max clicks:", style="Status.TLabel").pack(side="left", padx=(10, 4))
         ttk.Entry(loops, textvariable=self.var_seq_count, width=7).pack(side="left")
         ttk.Label(loops, text="0 = unlimited", style="Status.TLabel").pack(side="left", padx=8)
+
+    def _build_footer(self, frame):
+        footer = ttk.Frame(frame, style="Card.TFrame")
+        footer.pack(fill="x", pady=(8, 0))
+        ttk.Label(footer, text="Toggle hotkey:", style="Status.TLabel").pack(side="left")
+        ttk.Entry(footer, textvariable=self.var_hotkey, width=8).pack(side="left", padx=6)
+        ttk.Button(footer, text="Apply", command=self._start_hotkey,
+                   style="Ghost.TButton").pack(side="left")
+        ttk.Checkbutton(footer, text="Auto-update", variable=self.var_auto_update
+                        ).pack(side="left", padx=(14, 0))
+        ttk.Button(footer, text="Check updates", command=lambda: self.check_updates(True),
+                   style="Ghost.TButton").pack(side="left", padx=6)
+        ttk.Label(footer, textvariable=self.var_update, style="Status.TLabel").pack(
+            side="right")
+
+    def toggle_sequence_list(self):
+        if self.var_seq_list.get():
+            self.sequence_body.pack(fill="both", pady=(6, 0))
+        else:
+            self.sequence_body.pack_forget()
 
     @staticmethod
     def _center(window):
@@ -439,9 +442,10 @@ class ClickTaskApp:
             return "clicks at the cursor"
         return f"clicks at {position[0]}, {position[1]} (fixed point)"
 
-    def _toggle_label(self, running):
+    def _set_exec_labels(self, running):
         key = (self.var_hotkey.get() if hasattr(self, "var_hotkey") else "F6").strip().upper()
-        return f"Stop  ({key})" if running else f"Press {key} to click"
+        self.var_start_label.set(f"Start  ({key})")
+        self.var_stop_label.set(f"Stop  ({key})")
 
     # --- single instance -------------------------------------------------
 
@@ -516,7 +520,7 @@ class ClickTaskApp:
         """Breathe between two shades of red while clicking."""
         if self.engine is None or not self.engine.running:
             return
-        self.button_toggle.configure(style="RunningAlt.TButton" if bright else "Running.TButton")
+        self.button_stop.configure(style="RunningAlt.TButton" if bright else "Running.TButton")
         self._schedule("pulse", 620, lambda: self._pulse(not bright))
 
     def _pop_counter(self):
@@ -575,8 +579,6 @@ class ClickTaskApp:
         self._pick_active = True
         self._pick_target = target
         self._pick_queue = queue.Queue()
-        if self.settings_window is not None:
-            self.settings_window.withdraw()
         message = (
             "Click the next point of the sequence — Esc cancels"
             if target == "sequence"
@@ -605,9 +607,6 @@ class ClickTaskApp:
     def _finish_pick(self, point, error):
         self._pick_active = False
         self._hide_pick_toast()
-        if self.settings_window is not None:
-            self.settings_window.deiconify()
-            self.settings_window.lift()
         if error is not None:
             self.var_status.set("Pick failed")
             messagebox.showerror(APP_TITLE, str(error))
@@ -733,7 +732,7 @@ class ClickTaskApp:
             from tkinter import filedialog
 
             path = filedialog.asksaveasfilename(
-                parent=self.settings_window or self.root,
+                parent=self.root,
                 title="Export sequence",
                 defaultextension=".json",
                 filetypes=[("JSON sequence", "*.json"), ("All files", "*")],
@@ -756,7 +755,7 @@ class ClickTaskApp:
             from tkinter import filedialog
 
             path = filedialog.askopenfilename(
-                parent=self.settings_window or self.root,
+                parent=self.root,
                 title="Import sequence",
                 filetypes=[("JSON sequence", "*.json"), ("All files", "*")],
             )
@@ -850,7 +849,7 @@ class ClickTaskApp:
 
         window = tk.Toplevel(self.root)
         window.title(f"{APP_TITLE} — Edit point {index + 1}")
-        window.transient(self.settings_window or self.root)
+        window.transient(self.root)
         window.configure(bg=BG)
         window.resizable(False, False)
 
@@ -913,12 +912,12 @@ class ClickTaskApp:
                 ),
             )
 
-    def _active_tab(self):
-        return self.notebook.tab(self.notebook.select(), "text")
+    def _sequence_mode(self):
+        return self.var_mode.get().strip().lower() == "sequence"
 
     def build_plan(self):
-        """Build a plan from the active tab and the shared settings."""
-        if self._active_tab().lower() == "sequence":
+        """Build a plan from the selected mode and the shared settings."""
+        if self._sequence_mode():
             if not self.points:
                 raise ValueError("add at least one point to the sequence")
             plan = engine.ClickPlan(
@@ -934,6 +933,7 @@ class ClickTaskApp:
             plan = engine.ClickPlan(
                 mode=engine.INTERVAL_MODE,
                 interval_ms=self.interval_ms(),
+                random_offset_ms=self._read_int(self.var_offset),
                 button=self.var_button.get(),
                 double=self.var_double.get(),
                 hold_ms=self._read_int(self.var_hold),
@@ -947,25 +947,11 @@ class ClickTaskApp:
 
     # --- running ---
 
-    def open_settings(self):
-        if self.settings_window is None:
-            return
-        self.settings_window.deiconify()
-        self.settings_window.lift()
-        self.settings_window.focus_force()
-
-    def toggle(self):
-        if self.engine is not None and self.engine.running:
-            self.stop()
-        else:
-            self.start()
-
     def start(self):
         try:
             plan = self.build_plan()
         except ValueError as exc:
             messagebox.showerror(APP_TITLE, str(exc))
-            self.open_settings()
             return
         if self.hotkey_listener is None and (
             plan.position is not None or plan.mode == engine.SEQUENCE_MODE
@@ -988,8 +974,8 @@ class ClickTaskApp:
             return
         if started:
             self.var_status.set(f"Clicking — press the hotkey to stop ({self._target_text(plan.position)})")
-            self.var_toggle.set(self._toggle_label(True))
-            self.button_toggle.configure(style="Running.TButton")
+            self.button_start.configure(state="disabled")
+            self.button_stop.configure(state="normal", style="Running.TButton")
             self._pulse()
             self._schedule("poll", 120, self._poll)
 
@@ -999,13 +985,14 @@ class ClickTaskApp:
             self.engine.stop()
             # Show the final count: the last click may arrive between polls.
             self.var_counter.set(f"{self.engine.clicks_done} clicks")
-        self.button_toggle.configure(style="Accent.TButton")
-        if self._active_tab().strip().lower() == "sequence":
+        self.button_start.configure(state="normal", style="Accent.TButton")
+        self.button_stop.configure(state="disabled", style="Stop.TButton")
+        if self._sequence_mode():
             target = "the sequence points"
         else:
             target = self._target_text()
         self.var_status.set(f"Idle — next run {target}")
-        self.var_toggle.set(self._toggle_label(False))
+        self._set_exec_labels(False)
 
     def _poll(self):
         if self.engine is not None and self.engine.running:
@@ -1051,9 +1038,8 @@ class ClickTaskApp:
 
     def _hotkey_ready(self, name):
         self.var_hotkey.set(name)
-        running = self.engine is not None and self.engine.running
-        self.var_toggle.set(self._toggle_label(running))
-        if not running:
+        self._set_exec_labels(self.engine is not None and self.engine.running)
+        if not (self.engine is not None and self.engine.running):
             self.var_status.set(f"Ready — {name.upper()} to start/stop")
 
     def _hotkey_pressed(self):
@@ -1140,6 +1126,7 @@ class ClickTaskApp:
     def current_settings(self):
         return {
             "interval_ms": self.interval_ms(),
+            "random_offset_ms": self._read_int(self.var_offset),
             "button": self.var_button.get(),
             "double": self.var_double.get(),
             "hold_ms": self._read_int(self.var_hold),

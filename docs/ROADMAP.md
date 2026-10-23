@@ -12,6 +12,7 @@ deliberately deferred, and why. It is a decision log, not a promise list.
 | **CI coverage** | The matrix runs 3.10, 3.12, 3.13 and 3.14, plus the Xvfb job that exercises the GUI and a real XTEST click. |
 | **Release hygiene** | Changes are grouped by theme and the changelog is written per release; no release is cut just to reword one line. |
 | **README focus** | The TinyTask/GS comparison moved to [COMPARISON.md](COMPARISON.md); install and usage stay in the README. |
+| **Everything on one window** | v1.0–1.2 hid all options behind a Settings dialog; the reviewer question "why is configuring a clicker a detour?" won: v1.3.0 puts plan, interval, options, repeat, position and the sequence panel straight on the main window (OP Auto Clicker layout), with Start/Stop buttons and a footer row. |
 | **Discoverability** | Repository topics cover the stack and the use case. A demo GIF is still missing: it needs a real screen recording, not a generated image. |
 
 ## Deferred
