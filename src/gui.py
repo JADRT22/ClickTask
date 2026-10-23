@@ -428,6 +428,17 @@ class ClickTaskApp:
         y = (window.winfo_screenheight() - height) // 3
         window.geometry(f"+{x}+{y}")
 
+    def _target_text(self, position=None):
+        """One line describing where a run will click (for the status line)."""
+        if position is None:
+            try:
+                position = self.position()
+            except ValueError:
+                position = None
+        if position is None:
+            return "clicks at the cursor"
+        return f"clicks at {position[0]}, {position[1]} (fixed point)"
+
     def _toggle_label(self, running):
         key = (self.var_hotkey.get() if hasattr(self, "var_hotkey") else "F6").strip().upper()
         return f"Stop  ({key})" if running else f"Press {key} to click"
@@ -976,7 +987,7 @@ class ClickTaskApp:
             messagebox.showerror(APP_TITLE, str(exc))
             return
         if started:
-            self.var_status.set("Clicking — press the hotkey to stop")
+            self.var_status.set(f"Clicking — press the hotkey to stop ({self._target_text(plan.position)})")
             self.var_toggle.set(self._toggle_label(True))
             self.button_toggle.configure(style="Running.TButton")
             self._pulse()
@@ -989,7 +1000,11 @@ class ClickTaskApp:
             # Show the final count: the last click may arrive between polls.
             self.var_counter.set(f"{self.engine.clicks_done} clicks")
         self.button_toggle.configure(style="Accent.TButton")
-        self.var_status.set("Idle")
+        if self._active_tab().strip().lower() == "sequence":
+            target = "the sequence points"
+        else:
+            target = self._target_text()
+        self.var_status.set(f"Idle — next run {target}")
         self.var_toggle.set(self._toggle_label(False))
 
     def _poll(self):

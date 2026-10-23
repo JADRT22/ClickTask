@@ -90,7 +90,7 @@ Full comparison: [docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Status
 
-This README describes v1.2.0 (`VERSION` in `src/version.py`).
+This README describes v1.2.1 (`VERSION` in `src/version.py`).
 
 | Area | Support level |
 |---|---|
@@ -250,7 +250,9 @@ safe.
 
 One big button and a counter. **Press F6 to click** starts the run; the button
 turns red and pulses while it clicks, and the same key (or the button) stops
-it. **Settings…** holds everything else:
+it. The status line always says where the run clicks — **the cursor** (free
+mouse, GS "current location" style) or **a fixed point** — so a saved position
+cannot surprise you. **Settings…** holds everything else:
 
 - **Clicker tab** — interval (h/m/s/ms), button, single/double, hold, repeat
   mode, and the target (cursor or fixed point).
@@ -364,8 +366,8 @@ python3 -m unittest discover -s tests -t .
 python3 -m unittest tests/test_engine.py -v      # one module
 ```
 
-163 tests: 160 run headless and never move the pointer, plus 3 gated ones (a
-display guard and two real XTEST checks). The 33 GUI tests use a hidden window
+165 tests: 162 run headless and never move the pointer, plus 3 gated ones (a
+display guard and two real XTEST checks). The 35 GUI tests use a hidden window
 and skip when `DISPLAY` is unset; the installer/updater tests work inside a
 temporary `$HOME`. CI runs the headless suite on Python 3.10, 3.12, 3.13 and
 3.14, and a separate job under **Xvfb** where the GUI tests and the XTEST click

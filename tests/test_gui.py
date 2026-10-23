@@ -381,6 +381,29 @@ class GuiTests(unittest.TestCase):
         ask.assert_not_called()
         self.assertEqual(self.app.engine.clicks_done, 1)
 
+    def test_start_status_announces_the_fixed_point(self):
+        self.app.var_fixed.set(True)
+        self.app.var_x.set("100")
+        self.app.var_y.set("120")
+        self.app.var_unlimited.set(False)
+        self.app.var_count.set("1")
+        self.app.start()
+        self.app.engine.wait()
+        self.app.stop()
+        status = self.app.var_status.get()  # idle again; start() sets the text first
+        self.assertIn("100, 120", status)
+        self.assertIn("fixed point", status)
+
+    def test_start_status_announces_cursor_mode(self):
+        self.app.var_fixed.set(False)
+        self.app.var_unlimited.set(False)
+        self.app.var_count.set("1")
+        self.app.var_millis.set("5")
+        self.app.start()
+        self.app.engine.wait()
+        self.app.stop()
+        self.assertIn("clicks at the cursor", self.app.var_status.get())
+
     def test_run_updates_counter_and_saves_on_close(self):
         self.app.var_unlimited.set(False)
         self.app.var_count.set("3")

@@ -91,10 +91,10 @@ Sequence file: a JSON list of `{"x": int, "y": int, "delay_ms": int,
 
 ## Testing
 
-`python3 -m unittest discover -s tests -t .` — 163 tests. The engine, backend,
+`python3 -m unittest discover -s tests -t .` — 165 tests. The engine, backend,
 config, hotkey, CLI, installer, updater, single-instance, doctor and XTEST
 integration tests add 3 gated cases (display guard + real move/click) that only
-run with `CLICKTASK_REQUIRE_DISPLAY=1` / `CLICKTASK_X11_TEST=1`; the 33 GUI tests
+run with `CLICKTASK_REQUIRE_DISPLAY=1` / `CLICKTASK_X11_TEST=1`; the 35 GUI tests
 use a hidden window and are skipped when `DISPLAY` is unset. A CI job runs the
 whole suite under Xvfb, so the GUI tests and a real XTEST click are exercised
 there. In the normal suite nothing moves your pointer:

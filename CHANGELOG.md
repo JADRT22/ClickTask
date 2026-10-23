@@ -2,6 +2,16 @@
 
 All notable changes to **ClickTask** will be documented in this file.
 
+## [v1.2.1] - 2026-10-24
+
+### Fixed
+- The click target was invisible after you set a fixed point once: the status
+  line just said *Clicking — press the hotkey to stop*, so a saved position
+  could make clicking look like it "teleports" the pointer even in the
+  Cursor setting. The status now states where every run clicks — the cursor
+  (free mouse) or the saved fixed point — at start and when idle. No change
+  to behaviour; the mode used to work exactly as documented.
+
 ## [v1.2.0] - 2026-10-21
 
 ### Added
