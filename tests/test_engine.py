@@ -97,6 +97,34 @@ class EngineIntervalTests(unittest.TestCase):
         _runner, device, _clock, _events = self.run_plan(interval_plan(count=2))
         self.assertEqual(device.moves, [])
 
+    def test_random_offset_without_offset_keeps_exact_intervals(self):
+        _runner, _device, clock, _events = self.run_plan(
+            interval_plan(count=4, interval_ms=100, random_offset_ms=0)
+        )
+        self.assertAlmostEqual(clock.now, 0.3, places=6)
+
+    def test_random_offset_varies_the_interval_and_never_drops_below_1ms(self):
+        seen = []
+
+        for seed in range(40):
+            clock = FakeClock()
+            device = FakeBackend()
+            runner = engine.ClickEngine(
+                device, clock=clock.clock, sleep=clock.sleep,
+                on_event=lambda name, payload: None,
+            )
+            runner.start(
+                engine.ClickPlan(interval_ms=100, random_offset_ms=40, count=3)
+            )
+            runner.wait(5)
+            # Two gaps between three clicks.
+            seen.append(clock.now)
+
+        distinct = sorted(set(round(total, 3) for total in seen))
+        self.assertGreater(len(distinct), 1)
+        # Two gaps, each 100 ± 40 ms, floor 1 ms.
+        self.assertTrue(all(0.12 <= total <= 0.28 for total in distinct))
+
     def test_events_reported_in_order(self):
         _runner, _device, _clock, events = self.run_plan(interval_plan(count=2))
         names = [name for name, _payload in events]
@@ -191,6 +219,7 @@ class PlanValidationTests(unittest.TestCase):
             engine.ClickPlan(interval_ms=0),
             engine.ClickPlan(button="thumb"),
             engine.ClickPlan(count=-1),
+            engine.ClickPlan(random_offset_ms=-5),
             engine.ClickPlan(position=(-5, 3)),
             engine.ClickPlan(
                 mode=engine.SEQUENCE_MODE,

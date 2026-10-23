@@ -109,6 +109,17 @@ class PlanBuildingTests(unittest.TestCase):
         self.assertEqual(plan.hold_ms, 10)
         self.assertEqual(plan.position, (640, 480))
 
+    def test_click_plan_carries_random_offset(self):
+        args = cli.build_parser().parse_args(
+            ["click", "--interval", "100ms", "--count", "2", "--offset", "40"]
+        )
+        plan = cli.plan_from_args(args)
+        self.assertEqual(plan.random_offset_ms, 40)
+        self.assertEqual(plan.validate(), [])
+
+    def test_negative_offset_is_a_usage_error(self):
+        self.assertEqual(cli.main(["click", "--offset", "-5", "--dry-run"]), cli.EXIT_USAGE)
+
     def test_sequence_plan_uses_interval_as_default_delay(self):
         directory = tempfile.mkdtemp()
         path = os.path.join(directory, "points.json")

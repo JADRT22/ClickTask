@@ -15,6 +15,7 @@ APP_NAME = "clicktask"
 
 DEFAULTS = {
     "interval_ms": 100,
+    "random_offset_ms": 0,  # ± jitter applied to the interval; 0 = exact
     "button": "left",
     "double": False,
     "hold_ms": 0,
@@ -72,6 +73,9 @@ def normalize(raw):
 
     settings["interval_ms"] = _as_int(
         raw.get("interval_ms"), DEFAULTS["interval_ms"], 1, MAX_INTERVAL_MS
+    )
+    settings["random_offset_ms"] = _as_int(
+        raw.get("random_offset_ms"), DEFAULTS["random_offset_ms"], 0, 10000
     )
     button = raw.get("button")
     settings["button"] = button if button in BUTTONS else DEFAULTS["button"]

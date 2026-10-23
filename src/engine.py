@@ -8,6 +8,7 @@ Author: JADRT22 (https://github.com/JADRT22)
 License: MIT
 """
 
+import random
 import threading
 import time
 from dataclasses import dataclass, field
@@ -44,6 +45,7 @@ class ClickPlan:
 
     mode: str = INTERVAL_MODE
     interval_ms: int = 100
+    random_offset_ms: int = 0
     button: str = "left"
     double: bool = False
     hold_ms: int = 0
@@ -63,6 +65,8 @@ class ClickPlan:
             errors.append("mode must be 'interval' or 'sequence'")
         if self.interval_ms < 1:
             errors.append("interval must be at least 1 ms")
+        if self.random_offset_ms < 0:
+            errors.append("random offset cannot be negative")
         if self.button not in BUTTONS:
             errors.append("button must be left, middle or right")
         if self.count < 0:
@@ -157,6 +161,13 @@ class ClickEngine:
         finally:
             self._on_event("stop", self.clicks_done)
 
+    def _jitter_s(self, plan):
+        """Uniform jitter in [-offset, +offset], keeping the slot at >= 1 ms."""
+        if plan.random_offset_ms <= 0:
+            return plan.interval_s
+        delta = random.uniform(-plan.random_offset_ms, plan.random_offset_ms) / 1000.0
+        return max(plan.interval_s + delta, 0.001)
+
     def _run_interval(self, plan):
         next_at = self._clock()
         done = 0
@@ -167,7 +178,7 @@ class ClickEngine:
             self._on_event("click", done)
             if plan.count != UNLIMITED and done >= plan.count:
                 return
-            next_at += plan.interval_s
+            next_at += self._jitter_s(plan)
             now = self._clock()
             if next_at < now:
                 next_at = now  # fell behind (system stall): resume, never burst

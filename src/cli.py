@@ -114,6 +114,12 @@ def build_parser():
     click.add_argument("--double", action="store_true", help="send double clicks")
     click.add_argument("--hold", default="0", help="hold each press for N ms")
     click.add_argument(
+        "--offset",
+        default="0",
+        metavar="MS",
+        help="randomise the interval by ±N ms (0 = exact, default)",
+    )
+    click.add_argument(
         "--at", default=None, metavar="X,Y", help="fixed position (default: current cursor)"
     )
 
@@ -232,6 +238,7 @@ def plan_from_args(args):
             button=args.button,
             double=args.double,
             hold_ms=parse_number(args.hold, "--hold"),
+            random_offset_ms=parse_number(args.offset, "--offset"),
             count=parse_number(args.count, "--count"),
             position=position,
         )
